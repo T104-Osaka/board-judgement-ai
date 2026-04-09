@@ -93,72 +93,86 @@
         }
     }
 
-    function analyzeAndCut(img) {
-        const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = img.width;
-        tempCanvas.height = img.height;
-        const tempCtx = tempCanvas.getContext('2d', {willReadFrequently: true});
-        tempCtx.drawImage(img, 0, 0);
+    // analyzeAndCut 関数内のロジック部分を以下に差し替えています
+function analyzeAndCut(img) {
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = img.width;
+    tempCanvas.height = img.height;
+    const tempCtx = tempCanvas.getContext('2d', {willReadFrequently: true});
+    tempCtx.drawImage(img, 0, 0);
 
-        const imageData = tempCtx.getImageData(0, 0, img.width, img.height);
-        const data = imageData.data;
-        const width = img.width;
-        const height = img.height;
-        
-        let allCounts = [];
-        for (let y = 0; y < height; y++) {
-            let uniqueColors = new Set();
-            for (let x = 0; x < width; x++) {
-                const i = (y * width + x) * 4;
-                const colorKey = (data[i] << 16) | (data[i+1] << 8) | (data[i+2]);
-                uniqueColors.add(colorKey);
-            }
-            allCounts.push(uniqueColors.size);
+    const imageData = tempCtx.getImageData(0, 0, img.width, img.height);
+    const data = imageData.data;
+    const width = img.width;
+    const height = img.height;
+    
+    let allCounts = [];
+    for (let y = 0; y < height; y++) {
+        let uniqueColors = new Set();
+        for (let x = 0; x < width; x++) {
+            const i = (y * width + x) * 4;
+            const colorKey = (data[i] << 16) | (data[i+1] << 8) | (data[i+2]);
+            uniqueColors.add(colorKey);
         }
+        allCounts.push(uniqueColors.size);
+    }
 
-        let cutY = 0;
-        let lowCountRows = 0;
-        const startY = Math.floor(height * 0.5);
+    // --- 🚀 改良された境界検知ロジック ---
+    let cutY = 0;
+    let lowCountRows = 0;
+    let foundPlateau = false; // 「淵」を見つけたかどうかのフラグ
+    const startY = Math.floor(height * 0.5); 
 
-        for (let y = startY; y < height; y++) {
+    for (let y = startY; y < height; y++) {
+        if (!foundPlateau) {
+            // ステップ1: 40以下が3連続する場所を探す
             if (allCounts[y] <= 40) {
                 lowCountRows++;
-            } else {
-                if (lowCountRows >= 3 && allCounts[y] >= 70) {
-                    cutY = y;
-                    break;
+                if (lowCountRows >= 3) {
+                    foundPlateau = true; // 淵を発見！待機モードへ
+                    console.log(`淵を検知: ${y}px地点`);
                 }
+            } else {
                 lowCountRows = 0;
             }
-        }
-
-        let finalHeight = height - cutY;
-        canvas.width = width;
-        canvas.height = finalHeight;
-        ctx.drawImage(img, 0, cutY, width, finalHeight, 0, 0, width, finalHeight);
-
-        stageArea.style.display = 'flex';
-        generateYScale(finalHeight);
-
-        if (cutY > 0) {
-            detectionMsg.innerHTML = `<span class="cut-notice">境界を検知: ${cutY}px地点より上をカットしました</span>`;
         } else {
-            detectionMsg.innerHTML = `<span>境界は検知されませんでした</span>`;
-        }
-
-        let outputHtml = "[\n";
-        const step = height / 20;
-        for (let y = cutY; y < height; y++) {
-            if (y % Math.floor(step) === 0) {
-                const percent = Math.floor((y / height) * 100);
-                outputHtml += `<span class="header-label">--- 元の${percent}%地点 ---</span>`;
+            // ステップ2: 淵を見つけた後、いつか70以上が出たらそこを境界とする
+            if (allCounts[y] >= 70) {
+                cutY = y;
+                console.log(`境界（70以上）を検知: ${y}px地点`);
+                break;
             }
-            outputHtml += allCounts[y] + (y === height - 1 ? "" : ", ");
-            if ((y - cutY) % 10 === 9) outputHtml += "\n";
         }
-        outputHtml += "\n]";
-        resultBox.innerHTML = outputHtml;
     }
+    // ----------------------------------
+
+    let finalHeight = height - cutY;
+    canvas.width = width;
+    canvas.height = finalHeight;
+    ctx.drawImage(img, 0, cutY, width, finalHeight, 0, 0, width, finalHeight);
+
+    stageArea.style.display = 'flex';
+    generateYScale(finalHeight);
+
+    if (cutY > 0) {
+        detectionMsg.innerHTML = `<span class="cut-notice">境界を検知: ${cutY}px地点でカットしました</span>`;
+    } else {
+        detectionMsg.innerHTML = `<span>境界は検知されませんでした（条件に一致する場所がありません）</span>`;
+    }
+
+    let outputHtml = "[\n";
+    const step = height / 20;
+    for (let y = cutY; y < height; y++) {
+        if (y % Math.floor(step) === 0) {
+            const percent = Math.floor((y / height) * 100);
+            outputHtml += `<span class="header-label">--- 元の${percent}%地点 ---</span>`;
+        }
+        outputHtml += allCounts[y] + (y === height - 1 ? "" : ", ");
+        if ((y - cutY) % 10 === 9) outputHtml += "\n";
+    }
+    outputHtml += "\n]";
+    resultBox.innerHTML = outputHtml;
+}
 
     // ドラッグ&ドロップ
     document.addEventListener('dragover', (e) => {
