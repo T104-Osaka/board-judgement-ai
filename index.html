@@ -94,6 +94,7 @@
     }
 
    function analyzeAndCut(img) {
+    // --- 前半の境界検知ロジックは維持 ---
     const tempCanvas = document.createElement('canvas');
     tempCanvas.width = img.width;
     tempCanvas.height = img.height;
@@ -105,7 +106,6 @@
     const width = img.width;
     const height = img.height;
     
-    // --- 1. 垂直境界の特定 (前回までと同じ) ---
     let allRowCounts = [];
     for (let y = 0; y < height; y++) {
         let unique = new Set();
@@ -137,75 +137,91 @@
         }
     }
 
+    // --- 垂直境界に基づく画像描画 ---
     const finalHeight = bottomCutY - topCutY;
+    
+    // --- 🚀 新規：左右境界検知（縦スキャンによる自動トリミング） ---
+    // ここで前回の左右カットロジックを実行して finalWidth を確定させる
     const analysisTop = Math.floor(topCutY + finalHeight * 0.25);
     const analysisBottom = Math.floor(bottomCutY - finalHeight * 0.25);
-
-    // --- 2. 縦スキャンによる左右境界の特定 ---
-    let colColorCounts = [];
+    
+    let colCounts = [];
     for (let x = 0; x < width; x++) {
-        let uniqueInCol = new Set();
+        let u = new Set();
         for (let y = analysisTop; y < analysisBottom; y++) {
             const i = (y * width + x) * 4;
-            uniqueInCol.add((data[i] << 16) | (data[i+1] << 8) | (data[i+2]));
+            u.add((data[i] << 16) | (data[i+1] << 8) | (data[i+2]));
         }
-        colColorCounts.push(uniqueInCol.size);
+        colCounts.push(u.size);
     }
 
-    // 左側カットロジック (0%から探索)
-    let leftCutX = 0;
-    let leftLowCount = 0;
-    let foundLeftGap = false;
+    let leftX = 0; let leftLow = 0; let fGap = false;
     for (let x = 0; x < width; x++) {
-        if (!foundLeftGap) {
-            if (colColorCounts[x] <= 10) {
-                leftLowCount++;
-                if (leftLowCount >= 3) foundLeftGap = true;
-            } else leftLowCount = 0;
-        } else {
-            if (colColorCounts[x] >= 40) {
-                leftCutX = x;
-                break;
-            }
-        }
+        if (!fGap) { if (colCounts[x] <= 10) { leftLow++; if (leftLow >= 3) fGap = true; } else leftLow = 0; }
+        else { if (colCounts[x] >= 40) { leftX = x; break; } }
+    }
+    let rightX = width; let rightLow = 0;
+    for (let x = Math.floor(width * 0.7); x < width; x++) {
+        if (colCounts[x] <= 10) { rightLow++; if (rightLow >= 3) { rightX = x - 1; break; } } else rightLow = 0;
     }
 
-    // 右側カットロジック (70%から探索)
-    let rightCutX = width;
-    let rightLowCount = 0;
-    const startX70 = Math.floor(width * 0.7);
-    for (let x = startX70; x < width; x++) {
-        if (colColorCounts[x] <= 10) {
-            rightLowCount++;
-            if (rightLowCount >= 3) {
-                rightCutX = x - 1; // 始まった一つ前
-                break;
-            }
-        } else rightLowCount = 0;
-    }
-
-    // --- 3. 画像の描画 (左右をカット、上下は25%を除かない) ---
-    const finalWidth = rightCutX - leftCutX;
+    const finalWidth = rightX - leftX;
     canvas.width = finalWidth;
     canvas.height = finalHeight;
-    // 元画像の (leftCutX, topCutY) から切り出す
-    ctx.drawImage(img, leftCutX, topCutY, finalWidth, finalHeight, 0, 0, finalWidth, finalHeight);
-    
+    ctx.drawImage(img, leftX, topCutY, finalWidth, finalHeight, 0, 0, finalWidth, finalHeight);
+
+    // --- 🚀 核心：グリッド分割ロジック ---
+    // y方向比率: 1:2:2:2:2:2:2 (合計13ユニット)
+    const yRatios = [1, 2, 2, 2, 2, 2, 2];
+    const totalYUnits = yRatios.reduce((a, b) => a + b, 0); // 13
+    const unitH = finalHeight / totalYUnits;
+
+    // x方向: 8等分
+    const unitW = finalWidth / 8;
+
+    // グリッド線の描画（デバッグ表示）
+    ctx.strokeStyle = "rgba(255, 255, 0, 0.8)"; // 黄色の半透明線
+    ctx.lineWidth = 2;
+
+    // y方向の線を引く
+    let currentY = 0;
+    yRatios.forEach((ratio, idx) => {
+        currentY += ratio * unitH;
+        ctx.beginPath();
+        ctx.moveTo(0, currentY);
+        ctx.lineTo(finalWidth, currentY);
+        ctx.stroke();
+    });
+
+    // x方向の線を引く
+    for (let i = 1; i < 8; i++) {
+        let currentX = i * unitW;
+        ctx.beginPath();
+        ctx.moveTo(currentX, 0);
+        ctx.lineTo(currentX, finalHeight);
+        ctx.stroke();
+    }
+
+    // セル中央座標の算出（デバッグ用）
+    let gridData = [];
+    let accumY = 0;
+    yRatios.forEach((ratio, rowIdx) => {
+        const cellH = ratio * unitH;
+        const centerY = accumY + (cellH / 2);
+        for (let colIdx = 0; colIdx < 8; colIdx++) {
+            const centerX = (colIdx * unitW) + (unitW / 2);
+            gridData.push({ row: rowIdx, col: colIdx, x: Math.floor(centerX), y: Math.floor(centerY) });
+        }
+        accumY += cellH;
+    });
+
+    // 結果表示
     stageArea.style.display = 'flex';
     generateYScale(finalHeight);
-
-    // --- 4. 結果表示 ---
-    detectionMsg.innerHTML = `<span class="cut-notice">
-        左右: ${leftCutX}px 〜 ${rightCutX}px / 上下: ${topCutY}px 〜 ${bottomCutY}px でトリミング
-    </span>`;
+    detectionMsg.innerHTML = `<span class="cut-notice">盤面を ${yRatios.join(':')} および 8分割でグリッド化しました</span>`;
     
-    let outputHtml = `<span class="header-label">📊 解析範囲 (Y:${analysisTop}-${analysisBottom}) の縦スキャンデータ:</span>\n[\n`;
-    for (let i = leftCutX; i < rightCutX; i++) {
-        outputHtml += colColorCounts[i] + (i === rightCutX - 1 ? "" : ", ");
-        if ((i - leftCutX) % 20 === 19) outputHtml += "\n";
-    }
-    outputHtml += "\n]";
-    resultBox.innerHTML = outputHtml;
+    resultBox.innerHTML = `<span class="header-label">📍 各セルの中心座標 (x, y):</span>\n` + 
+        JSON.stringify(gridData.slice(0, 16), null, 2) + "\n... (以下略)";
 }
 
     // ドラッグ&ドロップ
