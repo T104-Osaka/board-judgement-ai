@@ -211,8 +211,18 @@
             for (let py = Math.floor(sY); py < Math.floor(eY); py++) {
                 for (let px = Math.floor(sX); px < Math.floor(eX); px++) {
                     const i = (py * width + px) * 4;
-                    sumR += data[i]; sumG += data[i+1]; sumB += data[i+2]; count++;
+                    // 💡 工学的フィルタ：R, G, B すべてが 225 以上（ほぼ白）なら無視
+                    // これによりピンク（Gが低い）を維持しつつ、テカリだけを弾く
+                    if (r > 225 && g > 225 && b > 225) continue;
+
+                    sumR += r; sumG += g; sumB += b;
+                    count++;
                 }
+            }
+            if (count === 0) {
+                const midI = (Math.floor((sY + eY) / 2) * width + Math.floor((sX + eX) / 2)) * 4;
+                sumR = data[midI]; sumG = data[midI+1]; sumB = data[midI+2];
+                count = 1;
             }
             const avg = { r: sumR / count, g: sumG / count, b: sumB / count };
 
