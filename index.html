@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>盤面位置特定プロファイラー</title>
+    <title>盤面位置特定プロファイラー (生データ版)</title>
     <style>
         body { font-family: sans-serif; text-align: center; background-color: #f0f2f5; padding: 20px; }
         .container { max-width: 950px; margin: 0 auto; background: white; padding: 20px; border-radius: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); display: flex; flex-direction: column; align-items: center; }
@@ -22,7 +22,7 @@
 <body>
 
 <div class="container">
-    <h1>📈 垂直色数プロファイラー (20分割ラベル)</h1>
+    <h1>📈 垂直色数プロファイラー (生カラーカウント)</h1>
     <input type="file" id="file-input" accept="image/*" style="display: none;">
     <button class="btn" onclick="document.getElementById('file-input').click()">写真を選択して解析</button>
     
@@ -81,10 +81,9 @@
         const width = canvas.width;
         
         let outputHtml = "[\n";
-        const step = height / 20; // 5%ごとの行数
+        const step = height / 20;
 
         for (let y = 0; y < height; y++) {
-            // 5%ごとの区切りにラベルを挿入
             if (y % Math.floor(step) === 0) {
                 const percent = Math.floor((y / height) * 100);
                 outputHtml += `<span class="header-label">--- ${percent}%地点 (${y}px) ---</span>`;
@@ -93,12 +92,13 @@
             let uniqueColors = new Set();
             for (let x = 0; x < width; x++) {
                 const i = (y * width + x) * 4;
-                const colorKey = (data[i]>>4 << 8) | (data[i+1]>>4 << 4) | (data[i+2]>>4);
+                // 🚀 割り算（ビットシフト）を廃止し、RGBそのままを24bit値として扱う
+                const colorKey = (data[i] << 16) | (data[i+1] << 8) | (data[i+2]);
                 uniqueColors.add(colorKey);
             }
             
             outputHtml += uniqueColors.size + (y === height - 1 ? "" : ", ");
-            if (y % 10 === 9) outputHtml += "\n"; // 10個ごとに改行して見やすく
+            if (y % 10 === 9) outputHtml += "\n";
         }
         outputHtml += "\n]";
         resultBox.innerHTML = outputHtml;
