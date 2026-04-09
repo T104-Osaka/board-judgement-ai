@@ -105,18 +105,17 @@
     const width = img.width;
     const height = img.height;
     
-    let allCounts = [];
+    // --- 1. まず全体をスキャンして境界を特定 (横スキャン) ---
+    let allRowCounts = [];
     for (let y = 0; y < height; y++) {
-        let uniqueColors = new Set();
+        let unique = new Set();
         for (let x = 0; x < width; x++) {
             const i = (y * width + x) * 4;
-            const colorKey = (data[i] << 16) | (data[i+1] << 8) | (data[i+2]);
-            uniqueColors.add(colorKey);
+            unique.add((data[i] << 16) | (data[i+1] << 8) | (data[i+2]));
         }
-        allCounts.push(uniqueColors.size);
+        allRowCounts.push(unique.size);
     }
 
-    // 1. 上下の境界検知ロジック (前回のまま)
     let topCutY = 0;
     let bottomCutY = height;
     let lowCountRows = 0;
@@ -126,48 +125,52 @@
 
     for (let y = startY; y < height; y++) {
         if (!foundPlateau) {
-            if (allCounts[y] <= 40) {
+            if (allRowCounts[y] <= 40) {
                 lowCountRows++;
-                if (lowCountRows >= 3) { foundPlateau = true; }
-            } else { lowCountRows = 0; }
+                if (lowCountRows >= 3) foundPlateau = true;
+            } else lowCountRows = 0;
         } else if (topCutY === 0) {
-            if (allCounts[y] >= 70) { topCutY = y; }
+            if (allRowCounts[y] >= 70) topCutY = y;
         }
-        if (y >= limitY && allCounts[y] <= 40) {
+        if (y >= limitY && allRowCounts[y] <= 40) {
             bottomCutY = y; break;
         }
     }
 
-    // 2. 表示画像の生成 (カット範囲そのまま)
+    // --- 2. 表示画像の描画 (上下25%は除かない) ---
     let finalHeight = bottomCutY - topCutY;
-    if (finalHeight <= 0) finalHeight = height; 
     canvas.width = width;
     canvas.height = finalHeight;
     ctx.drawImage(img, 0, topCutY, width, finalHeight, 0, 0, width, finalHeight);
-
     stageArea.style.display = 'flex';
     generateYScale(finalHeight);
 
-    detectionMsg.innerHTML = `<span class="cut-notice">境界: ${topCutY}px / ${bottomCutY}px でカットしました。</span>`;
+    // --- 3. 【今回のメイン】中央50%エリアの「縦方向」の色数カウント ---
+    // 解析対象の上下の境界 (元の画像スケール)
+    const analysisTop = Math.floor(topCutY + finalHeight * 0.25);
+    const analysisBottom = Math.floor(bottomCutY - finalHeight * 0.25);
 
-    // --- 🚀 残った画像の「中央50%」の詳細解析 ---
-    // 上下25%を除いた部分の開始・終了Y座標（元の画像スケール）
-    const footerAnalysisStart = Math.floor(topCutY + finalHeight * 0.25);
-    const footerAnalysisEnd = Math.floor(bottomCutY - finalHeight * 0.25);
+    let colColorCounts = [];
 
-    console.log(`詳細解析範囲 (元のスケール): ${footerAnalysisStart}px 〜 ${footerAnalysisEnd}px`);
+    // 左から右へ（列ごとに）ループ
+    for (let x = 0; x < width; x++) {
+        let uniqueInCol = new Set();
+        // 指定された高さの範囲を縦にスキャン
+        for (let y = analysisTop; y < analysisBottom; y++) {
+            const i = (y * width + x) * 4;
+            const colorKey = (data[i] << 16) | (data[i+1] << 8) | (data[i+2]);
+            uniqueInCol.add(colorKey);
+        }
+        colColorCounts.push(uniqueInCol.size);
+    }
 
-    let outputHtml = `<span class="header-label">📊 フッター領域・中央50%の詳細色数プロファイル:</span>\n[\n`;
+    // 4. 結果表示
+    detectionMsg.innerHTML = `<span class="cut-notice">解析範囲(Y): ${analysisTop}px 〜 ${analysisBottom}px (中央50%エリア)</span>`;
     
-    // 10個ごとの改行用のカウンタ
-    let displayCounter = 0;
-
-    for (let y = footerAnalysisStart; y < footerAnalysisEnd; y++) {
-        // デバッグデータの出力（すでに計算済みのallCountsを使うので高速）
-        outputHtml += allCounts[y] + (y === footerAnalysisEnd - 1 ? "" : ", ");
-        
-        if (displayCounter % 10 === 9) outputHtml += "\n";
-        displayCounter++;
+    let outputHtml = `<span class="header-label">📊 列ごとの色数プロファイル (縦スキャン):</span>\n[\n`;
+    for (let i = 0; i < colColorCounts.length; i++) {
+        outputHtml += colColorCounts[i] + (i === colColorCounts.length - 1 ? "" : ", ");
+        if (i % 20 === 19) outputHtml += "\n"; // 横幅が広いので20個ごとに改行
     }
     outputHtml += "\n]";
     resultBox.innerHTML = outputHtml;
