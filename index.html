@@ -105,7 +105,7 @@
     const width = img.width;
     const height = img.height;
     
-    // --- 1. 境界検知 (既存ロジック) ---
+    // --- 1. 垂直方向の境界検知 (y軸) ---
     let allRowCounts = [];
     for (let y = 0; y < height; y++) {
         let unique = new Set();
@@ -115,8 +115,11 @@
         }
         allRowCounts.push(unique.size);
     }
+
     let topCutY = 0, bottomCutY = height, lowCountRows = 0, foundPlateau = false;
-    const scanStartY = Math.floor(height * 0.5), limitY = Math.floor(height * 0.8); 
+    const scanStartY = Math.floor(height * 0.5); 
+    const scanLimitY = Math.floor(height * 0.8); 
+
     for (let y = scanStartY; y < height; y++) {
         if (!foundPlateau) {
             if (allRowCounts[y] <= 40) { lowCountRows++; if (lowCountRows >= 3) foundPlateau = true; }
@@ -124,13 +127,14 @@
         } else if (topCutY === 0) {
             if (allRowCounts[y] >= 70) topCutY = y;
         }
-        if (y >= limitY && allRowCounts[y] <= 40) { bottomCutY = y; break; }
+        if (y >= scanLimitY && allRowCounts[y] <= 40) { bottomCutY = y; break; }
     }
 
-    // --- 2. 左右境界検知 (既存ロジック) ---
+    // --- 2. 左右方向の境界検知 (x軸) ---
     const finalHeight = bottomCutY - topCutY;
     const analysisTop = Math.floor(topCutY + finalHeight * 0.25);
     const analysisBottom = Math.floor(bottomCutY - finalHeight * 0.25);
+    
     let colCounts = [];
     for (let x = 0; x < width; x++) {
         let u = new Set();
@@ -140,49 +144,58 @@
         }
         colCounts.push(u.size);
     }
-    let leftX = 0, leftLow = 0, fGap = false;
+
+    let leftX = 0, leftLow = 0, foundLeftGap = false;
     for (let x = 0; x < width; x++) {
-        if (!fGap) { if (colCounts[x] <= 10) { leftLow++; if (leftLow >= 3) fGap = true; } else leftLow = 0; }
-        else { if (colCounts[x] >= 40) { leftX = x; break; } }
+        if (!foundLeftGap) {
+            if (colCounts[x] <= 10) { leftLow++; if (leftLow >= 3) foundLeftGap = true; }
+            else leftLow = 0;
+        } else {
+            if (colCounts[x] >= 40) { leftX = x; break; }
+        }
     }
     let rightX = width, rightLow = 0;
     for (let x = Math.floor(width * 0.7); x < width; x++) {
-        if (colCounts[x] <= 10) { rightLow++; if (rightLow >= 3) { rightX = x - 1; break; } } else rightLow = 0;
+        if (colCounts[x] <= 10) { rightLow++; if (rightLow >= 3) { rightX = x - 1; break; } }
+        else rightLow = 0;
     }
 
+    // 描画用のキャンバス設定
     const finalWidth = rightX - leftX;
     canvas.width = finalWidth;
     canvas.height = finalHeight;
     ctx.drawImage(img, leftX, topCutY, finalWidth, finalHeight, 0, 0, finalWidth, finalHeight);
 
-    // --- 3. グリッド色判定 & マス目内の色数カウント ---
+    // --- 3. 色判定リファレンス ---
     const COLOR_PALETTE = {
         "赤": { r: 210, g: 50,  b: 50 },
         "青": { r: 50,  g: 100, b: 210 },
         "緑": { r: 50,  g: 160, b: 50 },
         "黄": { r: 220, g: 200, b: 50 },
-        "紫": { r: 150, g: 50,  b: 180 },
-        "ピンク": { r: 230, g: 100, b: 180 }
+        "紫": { r: 150, g: 50,  b: 180 }
+        // ピンクは色数判定で分岐するためここには入れない
     };
 
     const yRatios = [1, 2, 2, 2, 2, 2, 2];
     const unitH = finalHeight / 13;
     const unitW = finalWidth / 8;
 
+    // --- 4. 盤面解析ループ ---
     let puyoBoardData = [];
     let currentLoopY = 0;
 
     for (let row = 0; row < 7; row++) {
         const rowHeight = yRatios[row] * unitH;
         let rowResult = [];
+
         for (let col = 0; col < 8; col++) {
             let sX, eX, sY, eY;
-            if (row === 0) { // ネクスト
+            if (row === 0) { // NEXT
                 sX = leftX + (col * unitW) + (unitW * 0.33);
                 eX = leftX + (col * unitW) + (unitW * 0.67);
                 sY = topCutY + currentLoopY;
                 eY = topCutY + currentLoopY + rowHeight;
-            } else { // 盤面
+            } else { // BOARD
                 sX = leftX + (col * unitW) + (unitW * 0.25);
                 eX = leftX + (col * unitW) + (unitW * 0.75);
                 sY = topCutY + currentLoopY + (rowHeight * 0.25);
@@ -190,17 +203,16 @@
             }
 
             let sumR = 0, sumG = 0, sumB = 0, count = 0;
-            let uniqueInCell = new Set(); // 🚀 マス目内の色数カウント用
+            let uniqueInCell = new Set();
 
             for (let py = Math.floor(sY); py < Math.floor(eY); py++) {
                 for (let px = Math.floor(sX); px < Math.floor(eX); px++) {
                     const i = (py * width + px) * 4;
                     const r = data[i], g = data[i+1], b = data[i+2];
 
-                    // 全ピクセルを色数カウントには含める
                     uniqueInCell.add((r << 16) | (g << 8) | b);
 
-                    // テカリ除外フィルタ（平均計算用）
+                    // テカリ除外 (RGBすべてが225以上ならスキップ)
                     if (r > 225 && g > 225 && b > 225) continue;
 
                     sumR += r; sumG += g; sumB += b;
@@ -208,32 +220,53 @@
                 }
             }
 
+            // 安全策：すべて除外された場合は中心ピクセルを採用
             if (count === 0) {
                 const midI = (Math.floor((sY + eY) / 2) * width + Math.floor((sX + eX) / 2)) * 4;
                 sumR = data[midI]; sumG = data[midI+1]; sumB = data[midI+2];
                 count = 1;
             }
-            const avg = { r: sumR / count, g: sumG / count, b: sumB / count };
 
-            let minDest = Infinity;
+            const avg = { r: sumR / count, g: sumG / count, b: sumB / count };
             let closestColor = "不明";
-            for (let colorName in COLOR_PALETTE) {
-                const t = COLOR_PALETTE[colorName];
-                const d = Math.sqrt(Math.pow(avg.r-t.r,2)+Math.pow(avg.g-t.g,2)+Math.pow(avg.b-t.b,2));
-                if (d < minDest) { minDest = d; closestColor = colorName; }
+
+            // --- 🚀 判定の核：色数300の壁 ---
+            if (uniqueInCell.size <= 300) {
+                closestColor = "ピンク";
+            } else {
+                let minDest = Infinity;
+                for (let colorName in COLOR_PALETTE) {
+                    const t = COLOR_PALETTE[colorName];
+                    const d = Math.sqrt(Math.pow(avg.r - t.r, 2) + Math.pow(avg.g - t.g, 2) + Math.pow(avg.b - t.b, 2));
+                    if (d < minDest) {
+                        minDest = d;
+                        closestColor = colorName;
+                    }
+                }
             }
-            
-            // 🚀 結果に色数を付与して保存 (例: "赤(145)")
             rowResult.push(`${closestColor}(${uniqueInCell.size})`);
         }
         puyoBoardData.push(rowResult);
         currentLoopY += rowHeight;
     }
 
-    // デバッグ表示
+    // --- 5. 描画と結果出力 ---
     stageArea.style.display = 'flex';
     generateYScale(finalHeight);
-    let out = `<span class="header-label">🧩 デジタル盤面データ ( )内はマス内の色数:</span>\n`;
+    
+    // グリッド線を描画
+    ctx.strokeStyle = "rgba(255, 255, 0, 0.5)";
+    ctx.lineWidth = 1;
+    let gridLineY = 0;
+    yRatios.forEach(r => {
+        gridLineY += r * unitH;
+        ctx.beginPath(); ctx.moveTo(0, gridLineY); ctx.lineTo(finalWidth, gridLineY); ctx.stroke();
+    });
+    for (let i = 1; i < 8; i++) {
+        ctx.beginPath(); ctx.moveTo(i * unitW, 0); ctx.lineTo(i * unitW, finalHeight); ctx.stroke();
+    }
+
+    let out = `<span class="header-label">🧩 デジタル盤面データ ( )内はユニーク色数:</span>\n`;
     puyoBoardData.forEach((row, idx) => {
         out += `${idx === 0 ? "NEXT" : "ROW" + idx}: [ ${row.join(", ")} ]\n`;
     });
