@@ -3,42 +3,45 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>盤面境界検知プロファイラー (画像カット版)</title>
+    <title>盤面境界検知プロファイラー (完全版)</title>
     <style>
-        body { font-family: sans-serif; text-align: center; background-color: #f0f2f5; padding: 20px; }
+        body { font-family: sans-serif; text-align: center; background-color: #f0f2f5; padding: 20px; margin: 0; }
         .container { max-width: 950px; margin: 0 auto; background: white; padding: 20px; border-radius: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); display: flex; flex-direction: column; align-items: center; }
-        .stage-area { display: flex; align-items: stretch; margin-top: 10px; border: 1px solid #333; background-color: #fff; }
         
-        /* 目盛り */
+        /* ボタンのスタイル */
+        .btn { background-color: #3498db; color: white; padding: 15px 30px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 16px; margin: 20px 0; transition: background 0.3s; }
+        .btn:hover { background-color: #2980b9; }
+
+        .stage-area { display: flex; align-items: stretch; margin-top: 10px; border: 1px solid #333; background-color: #fff; }
         .y-scale { display: flex; flex-direction: column; width: 60px; justify-content: space-between; border-right: 2px solid #333; font-family: monospace; font-size: 12px; text-align: right; background: #eee; }
         .y-scale div { height: 0; position: relative; }
         .y-scale div::after { content: ""; position: absolute; right: 0; top: 0; width: 10px; height: 1px; background: #333; }
         .tick-label { position: absolute; right: 12px; top: -7px; font-weight: bold; }
 
-        /* 画像表示エリア */
         #preview-canvas { max-width: 800px; height: auto; }
         
-        /* 結果表示エリア */
         .result-area { margin-top: 20px; text-align: left; background: #2c3e50; color: #ecf0f1; padding: 15px; border-radius: 5px; width: 100%; box-sizing: border-box; }
         #result-box { font-family: 'Courier New', monospace; font-size: 13px; line-height: 1.6; white-space: pre-wrap; max-height: 400px; overflow-y: auto; }
         .header-label { color: #f1c40f; font-weight: bold; margin: 10px 0; border-bottom: 1px dashed #f1c40f; display: block; }
         .cut-notice { background: #e74c3c; color: white; padding: 5px 10px; border-radius: 3px; font-size: 12px; margin-bottom: 10px; display: inline-block; font-weight: bold; }
         
-        /* ドラッグ&ドロップのオーバーレイ */
-        .drag-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(52, 152, 219, 0.9); z-index: 1000; justify-content: center; align-items: center; }
+        .drag-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(52, 152, 219, 0.9); z-index: 1000; justify-content: center; align-items: center; pointer-events: none; }
         .drag-overlay-text { font-size: 30px; color: white; font-weight: bold; }
         body.drag-active .drag-overlay { display: flex; }
     </style>
 </head>
-<body>
+<body id="drop-target">
 
 <div id="dragOverlay" class="drag-overlay">
     <div class="drag-overlay-text">ドロップして解析</div>
 </div>
 
 <div class="container">
-    <h1>🔍 境界検知・画像物理カット版</h1>
+    <h1>🔍 盤面境界検知・画像物理カット版</h1>
     <p>50%より下を考え、40以下が3連して70以上が出たら、それより上をカット</p>
+    
+    <input type="file" id="file-input" accept="image/*" style="display: none;">
+    <button class="btn" onclick="document.getElementById('file-input').click()">写真を選択して解析</button>
     
     <div id="detection-msg"></div>
     
@@ -54,6 +57,7 @@
 </div>
 
 <script>
+    const fileInput = document.getElementById('file-input');
     const canvas = document.getElementById('preview-canvas');
     const ctx = canvas.getContext('2d');
     const resultBox = document.getElementById('result-box');
@@ -61,15 +65,17 @@
     const stageArea = document.getElementById('stage');
     const yScaleTicks = document.getElementById('y-scale-ticks');
 
+    // 🚀 ボタンからの入力を処理
+    fileInput.addEventListener('change', (e) => {
+        if (e.target.files.length > 0) handleImage(e.target.files[0]);
+    });
+
     function handleImage(file) {
         if (!file || !file.type.startsWith('image/')) return;
         const reader = new FileReader();
         reader.onload = function(event) {
             const img = new Image();
-            img.onload = function() {
-                // 1. まず画像をフルサイズで解析
-                analyzeAndCut(img);
-            };
+            img.onload = function() { analyzeAndCut(img); };
             img.src = event.target.result;
         };
         reader.readAsDataURL(file);
@@ -100,7 +106,6 @@
         const height = img.height;
         
         let allCounts = [];
-        // フルカラー判定
         for (let y = 0; y < height; y++) {
             let uniqueColors = new Set();
             for (let x = 0; x < width; x++) {
@@ -111,10 +116,9 @@
             allCounts.push(uniqueColors.size);
         }
 
-        // 境界検知ロジック
         let cutY = 0;
         let lowCountRows = 0;
-        const startY = Math.floor(height * 0.5); // 50%点より下
+        const startY = Math.floor(height * 0.5);
 
         for (let y = startY; y < height; y++) {
             if (allCounts[y] <= 40) {
@@ -124,35 +128,30 @@
                     cutY = y;
                     break;
                 }
-                lowCountRows = 0; // リセット
+                lowCountRows = 0;
             }
         }
 
-        // 3. 画像の物理カットと表示
         let finalHeight = height - cutY;
         canvas.width = width;
         canvas.height = finalHeight;
-        // cutYより下の部分だけを描画
         ctx.drawImage(img, 0, cutY, width, finalHeight, 0, 0, width, finalHeight);
 
         stageArea.style.display = 'flex';
-        generateYScale(finalHeight); // カット後の高さで目盛りを再生成
+        generateYScale(finalHeight);
 
-        // 4. 表示メッセージとデバッグデータ出力
         if (cutY > 0) {
-            detectionMsg.innerHTML = `<span class="cut-notice">境界を検知: ${cutY}px地点より上を物理カットしました (残存高さ: ${finalHeight}px)</span>`;
+            detectionMsg.innerHTML = `<span class="cut-notice">境界を検知: ${cutY}px地点より上をカットしました</span>`;
         } else {
-            detectionMsg.innerHTML = `<span>境界は検知されませんでした（画像をそのまま表示）</span>`;
+            detectionMsg.innerHTML = `<span>境界は検知されませんでした</span>`;
         }
 
         let outputHtml = "[\n";
-        const step = height / 20; // 元のスケール
-
+        const step = height / 20;
         for (let y = cutY; y < height; y++) {
-            // 元の画像における%地点を表示
             if (y % Math.floor(step) === 0) {
                 const percent = Math.floor((y / height) * 100);
-                outputHtml += `<span class="header-label">--- 元の${percent}%地点 (${y}px) ---</span>`;
+                outputHtml += `<span class="header-label">--- 元の${percent}%地点 ---</span>`;
             }
             outputHtml += allCounts[y] + (y === height - 1 ? "" : ", ");
             if ((y - cutY) % 10 === 9) outputHtml += "\n";
@@ -161,23 +160,18 @@
         resultBox.innerHTML = outputHtml;
     }
 
-    // ドラッグ&ドロップの設定
+    // ドラッグ&ドロップ
     document.addEventListener('dragover', (e) => {
-        e.preventDefault(); e.stopPropagation();
-        document.body.classList.add('drag-active');
+        e.preventDefault(); document.body.classList.add('drag-active');
     });
     document.addEventListener('dragleave', (e) => {
-        e.preventDefault(); e.stopPropagation();
         if (e.relatedTarget === null || !document.body.contains(e.relatedTarget)) {
             document.body.classList.remove('drag-active');
         }
     });
     document.addEventListener('drop', (e) => {
-        e.preventDefault(); e.stopPropagation();
-        document.body.classList.remove('drag-active');
-        if (e.dataTransfer.files.length > 0) {
-            handleImage(e.dataTransfer.files[0]);
-        }
+        e.preventDefault(); document.body.classList.remove('drag-active');
+        if (e.dataTransfer.files.length > 0) handleImage(e.dataTransfer.files[0]);
     });
 </script>
 
