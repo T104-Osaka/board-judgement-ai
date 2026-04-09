@@ -3,26 +3,44 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>盤面色数解析ツール</title>
+    <title>盤面色数プロファイラー</title>
     <style>
         body { font-family: sans-serif; text-align: center; background-color: #f0f2f5; padding: 20px; }
-        .container { max-width: 800px; margin: 0 auto; background: white; padding: 20px; border-radius: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-        #preview-canvas { max-width: 100%; border: 1px solid #333; margin-top: 10px; }
-        .result-area { margin-top: 20px; text-align: left; background: #eee; padding: 15px; border-radius: 5px; word-break: break-all; font-family: monospace; max-height: 200px; overflow-y: auto; }
+        .container { max-width: 900px; margin: 0 auto; background: white; padding: 20px; border-radius: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); display: flex; flex-direction: column; align-items: center; }
+        
+        /* 写真と目盛りを並べるコンテナ */
+        .stage-area { display: flex; align-items: stretch; margin-top: 10px; border: 1px solid #ddd; padding: 5px; background-color: #fff; }
+        
+        /* 20分割の目盛り */
+        .y-scale { display: flex; flex-direction: column; width: 60px; justify-content: space-between; padding-right: 10px; border-right: 2px solid #333; font-family: monospace; font-size: 12px; text-align: right; }
+        .y-scale div { position: relative; height: 0; } /* 0高さで配置 */
+        .y-scale div::after { content: ""; position: absolute; right: -12px; top: 0; width: 8px; height: 1px; background: #333; }
+        .y-scale .tick-label { position: absolute; right: 0; top: -7px; }
+
+        #preview-canvas { max-width: calc(100% - 70px); height: auto; border: 1px solid #333; }
+        
+        .result-area { margin-top: 20px; text-align: left; background: #eee; padding: 15px; border-radius: 5px; width: calc(100% - 30px); }
+        #result-box { word-break: break-all; font-family: monospace; font-size: 14px; color: #2c3e50; line-height: 1.5; }
         .btn { background-color: #3498db; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h1>📊 行ごとの色数解析</h1>
+    <h1>📸 盤面垂直エントロピー解析</h1>
     <input type="file" id="file-input" accept="image/*" style="display: none;">
-    <button class="btn" onclick="document.getElementById('file-input').click()">画像を選択して解析</button>
+    <button class="btn" onclick="document.getElementById('file-input').click()">写真を選択して解析</button>
     
-    <canvas id="preview-canvas"></canvas>
+    <div id="stage" class="stage-area" style="display: none;">
+        <div id="y-scale-ticks" class="y-scale">
+            </div>
+        <canvas id="preview-canvas"></canvas>
+    </div>
     
-    <h3>解析結果 (行ごとのユニーク色数):</h3>
-    <div id="result-box" class="result-area">画像を選択するとここに結果が表示されます</div>
+    <div class="result-area">
+        <h3>解析結果 (行ごとの色数配列):</h3>
+        <div id="result-box">写真を選択するとここに結果が表示されます</div>
+    </div>
 </div>
 
 <script>
@@ -30,6 +48,8 @@
     const canvas = document.getElementById('preview-canvas');
     const ctx = canvas.getContext('2d');
     const resultBox = document.getElementById('result-box');
+    const stageArea = document.getElementById('stage');
+    const yScaleTicks = document.getElementById('y-scale-ticks');
 
     fileInput.addEventListener('change', function(e) {
         const file = e.target.files[0];
@@ -43,19 +63,42 @@
                 canvas.height = img.height;
                 ctx.drawImage(img, 0, 0);
                 
+                // 表示エリアを出し、目盛りを生成
+                stageArea.style.display = 'flex';
+                generateYScale(img.height);
+                
                 // 解析実行
-                analyzeColorCount();
+                analyzeColorEntropy(img.height);
             };
             img.src = event.target.result;
         };
         reader.readAsDataURL(file);
     });
 
-    function analyzeColorCount() {
+    // 20分割（5%刻み）の目盛りをHTMLで生成
+    function generateYScale(height) {
+        yScaleTicks.innerHTML = ''; // クリア
+        for (let i = 0; i <= 20; i++) {
+            const percent = i * 5;
+            const pixelY = Math.floor(height * (percent / 100));
+            
+            const tickWrapper = document.createElement('div');
+            // 最初の0と最後の20だけラベルを表示
+            if (i === 0 || i === 20 || i % 2 === 0) {
+                const label = document.createElement('span');
+                label.className = 'tick-label';
+                // ラベルテキスト（%とpxを併記）
+                label.innerText = `${percent}%`;
+                tickWrapper.appendChild(label);
+            }
+            yScaleTicks.appendChild(tickWrapper);
+        }
+    }
+
+    function analyzeColorEntropy(height) {
         const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
         const data = imageData.data;
         const width = canvas.width;
-        const height = canvas.height;
         
         let rowColorCounts = [];
 
@@ -64,21 +107,16 @@
             
             for (let x = 0; x < width; x++) {
                 const index = (y * width + x) * 4;
-                const r = data[index];
-                const g = data[index + 1];
-                const b = data[index + 2];
-
-                // 🚀 工学的工夫：色の量子化 (各チャンネルの下位4bitを捨てる)
-                // 直撮り写真のノイズを無視し、本質的な色数を数えるため
-                const quantizedColor = `${r >> 4},${g >> 4},${b >> 4}`;
+                // 色の量子化 (ノイズ除去)
+                const quantizedColor = `${data[index] >> 4},${data[index + 1] >> 4},${data[index + 2] >> 4}`;
                 uniqueColors.add(quantizedColor);
             }
             rowColorCounts.push(uniqueColors.size);
         }
 
-        // カンマ区切りで表示
-        resultBox.innerText = rowColorCounts.join(', ');
-        console.log("Analysis complete. Total rows:", rowColorCounts.length);
+        // 分かりやすく、[値, 値, ..., 値] の形式で表示
+        resultBox.innerText = `[\n    ${rowColorCounts.join(', ')}\n]`;
+        console.log("Analysis complete. Check the result box.");
     }
 </script>
 
