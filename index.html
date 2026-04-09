@@ -203,8 +203,8 @@
 
             // --- 🚀 今回の核心：G/R比率判定 ---
             if (uniqueInCell.size <= 300) {
-                // 色数が少ない（テカっている）時、GがRの66%以上なら黄色、未満ならピンク
-                if (avg.g >= avg.r * 0.80) {
+                // 色数が少ない（テカっている）時、GがRの86%以上なら黄色、未満ならピンク
+                if (avg.g >= avg.r * 0.86) {
                     closestColor = "黄";
                 } else {
                     closestColor = "ピンク";
