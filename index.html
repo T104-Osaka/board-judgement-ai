@@ -93,7 +93,7 @@
         }
     }
 
-function analyzeAndCut(img) {
+   function analyzeAndCut(img) {
     const tempCanvas = document.createElement('canvas');
     tempCanvas.width = img.width;
     tempCanvas.height = img.height;
@@ -180,33 +180,6 @@ function analyzeAndCut(img) {
         }
         outputHtml += allCounts[y] + (y === bottomCutY - 1 ? "" : ", ");
         if ((y - topCutY) % 10 === 9) outputHtml += "\n";
-    }
-    outputHtml += "\n]";
-    resultBox.innerHTML = outputHtml;
-}
-    let finalHeight = height - cutY;
-    canvas.width = width;
-    canvas.height = finalHeight;
-    ctx.drawImage(img, 0, cutY, width, finalHeight, 0, 0, width, finalHeight);
-
-    stageArea.style.display = 'flex';
-    generateYScale(finalHeight);
-
-    if (cutY > 0) {
-        detectionMsg.innerHTML = `<span class="cut-notice">境界を検知: ${cutY}px地点でカットしました</span>`;
-    } else {
-        detectionMsg.innerHTML = `<span>境界は検知されませんでした（条件に一致する場所がありません）</span>`;
-    }
-
-    let outputHtml = "[\n";
-    const step = height / 20;
-    for (let y = cutY; y < height; y++) {
-        if (y % Math.floor(step) === 0) {
-            const percent = Math.floor((y / height) * 100);
-            outputHtml += `<span class="header-label">--- 元の${percent}%地点 ---</span>`;
-        }
-        outputHtml += allCounts[y] + (y === height - 1 ? "" : ", ");
-        if ((y - cutY) % 10 === 9) outputHtml += "\n";
     }
     outputHtml += "\n]";
     resultBox.innerHTML = outputHtml;
