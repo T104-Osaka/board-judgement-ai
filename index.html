@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ぷよ盤面認識ツール - 開発版</title>
+    <style>
+        body { font-family: sans-serif; text-align: center; background-color: #f0f2f5; padding: 20px; }
+        .container { max-width: 600px; margin: 0 auto; background: white; padding: 30px; border-radius: 15px; shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .upload-box { border: 3px dashed #3498db; padding: 40px; border-radius: 10px; cursor: pointer; margin-bottom: 20px; }
+        #preview-canvas { max-width: 100%; height: auto; border: 2px solid #333; margin-top: 20px; display: none; }
+        .btn { background-color: #3498db; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; }
+        .btn:hover { background-color: #2980b9; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>📸 盤面をアップロード</h1>
+    
+    <div class="upload-box" id="drop-area">
+        <p>ここに画像をドロップするか</p>
+        <input type="file" id="file-input" accept="image/*" style="display: none;">
+        <button class="btn" onclick="document.getElementById('file-input').click()">画像を選択</button>
+    </div>
+
+    <canvas id="preview-canvas"></canvas>
+    <div id="status" style="margin-top: 15px; color: #7f8c8d;">画像を選択してください</div>
+</div>
+
+<script>
+    const fileInput = document.getElementById('file-input');
+    const canvas = document.getElementById('preview-canvas');
+    const ctx = canvas.getContext('2d');
+    const status = document.getElementById('status');
+
+    fileInput.addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = function(event) {
+            const img = new Image();
+            img.onload = function() {
+                // キャンバスのサイズを画像に合わせる
+                canvas.width = img.width;
+                canvas.height = img.height;
+                // 画像を描画
+                ctx.drawImage(img, 0, 0);
+                canvas.style.display = 'block';
+                status.innerText = `読み込み完了: ${img.width}x${img.height}px`;
+                
+                // ここに将来「OpenCV.js」を使った解析ロジックを追加していきます
+                console.log("画像データを取得しました。解析の準備ができています。");
+            };
+            img.src = event.target.result;
+        };
+        reader.readAsDataURL(file);
+    });
+</script>
+
+</body>
+</html>
