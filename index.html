@@ -93,7 +93,6 @@
         }
     }
 
-    // analyzeAndCut 関数内のロジック部分を以下に差し替えています
 function analyzeAndCut(img) {
     const tempCanvas = document.createElement('canvas');
     tempCanvas.width = img.width;
@@ -117,35 +116,74 @@ function analyzeAndCut(img) {
         allCounts.push(uniqueColors.size);
     }
 
-    // --- 🚀 改良された境界検知ロジック ---
-    let cutY = 0;
+    // --- 🚀 上下の境界検知ロジック ---
+    let topCutY = 0;       // 上側のカット位置
+    let bottomCutY = height; // 下側のカット位置（デフォルトは画像の底）
+    
     let lowCountRows = 0;
-    let foundPlateau = false; // 「淵」を見つけたかどうかのフラグ
-    const startY = Math.floor(height * 0.5); 
+    let foundPlateau = false;
+    const startY = Math.floor(height * 0.5); // 50%点から上側境界を探す
+    const limitY = Math.floor(height * 0.8); // 80%点から下側境界を探す
 
     for (let y = startY; y < height; y++) {
+        // 1. まず上側の境界（フッターの始まり）を探す
         if (!foundPlateau) {
-            // ステップ1: 40以下が3連続する場所を探す
             if (allCounts[y] <= 40) {
                 lowCountRows++;
                 if (lowCountRows >= 3) {
-                    foundPlateau = true; // 淵を発見！待機モードへ
-                    console.log(`淵を検知: ${y}px地点`);
+                    foundPlateau = true;
                 }
             } else {
                 lowCountRows = 0;
             }
-        } else {
-            // ステップ2: 淵を見つけた後、いつか70以上が出たらそこを境界とする
+        } else if (topCutY === 0) {
             if (allCounts[y] >= 70) {
-                cutY = y;
-                console.log(`境界（70以上）を検知: ${y}px地点`);
-                break;
+                topCutY = y;
+                console.log(`上側境界を検知: ${y}px`);
             }
+        }
+
+        // 2. 80%地点以降で、色が40以下になったらそこを下側境界とする
+        if (y >= limitY && allCounts[y] <= 40) {
+            bottomCutY = y;
+            console.log(`下側境界を検知: ${y}px`);
+            break; // 下限が見つかったら終了
         }
     }
     // ----------------------------------
 
+    // カット後の高さを計算
+    let finalHeight = bottomCutY - topCutY;
+    if (finalHeight <= 0) finalHeight = height; // 異常値への安全策
+
+    canvas.width = width;
+    canvas.height = finalHeight;
+    
+    // 元画像の (0, topCutY) から finalHeight 分だけ切り出す
+    ctx.drawImage(img, 0, topCutY, width, finalHeight, 0, 0, width, finalHeight);
+
+    stageArea.style.display = 'flex';
+    generateYScale(finalHeight);
+
+    // メッセージ表示
+    let msg = `上側: ${topCutY}px / 下側: ${bottomCutY}px でカットしました。`;
+    if (topCutY === 0 && bottomCutY === height) msg = "境界は検知されませんでした。";
+    detectionMsg.innerHTML = `<span class="cut-notice">${msg}</span>`;
+
+    // デバッグ用配列表示（カット範囲内のみ）
+    let outputHtml = "[\n";
+    const step = height / 20;
+    for (let y = topCutY; y < bottomCutY; y++) {
+        if (y % Math.floor(step) === 0) {
+            const percent = Math.floor((y / height) * 100);
+            outputHtml += `<span class="header-label">--- 元の${percent}%地点 ---</span>`;
+        }
+        outputHtml += allCounts[y] + (y === bottomCutY - 1 ? "" : ", ");
+        if ((y - topCutY) % 10 === 9) outputHtml += "\n";
+    }
+    outputHtml += "\n]";
+    resultBox.innerHTML = outputHtml;
+}
     let finalHeight = height - cutY;
     canvas.width = width;
     canvas.height = finalHeight;
