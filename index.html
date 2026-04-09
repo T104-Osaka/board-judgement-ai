@@ -105,7 +105,7 @@
     const width = img.width;
     const height = img.height;
     
-    // --- 1. 垂直境界の特定 ---
+    // --- 1. 境界検知 (既存ロジック) ---
     let allRowCounts = [];
     for (let y = 0; y < height; y++) {
         let unique = new Set();
@@ -115,11 +115,8 @@
         }
         allRowCounts.push(unique.size);
     }
-
     let topCutY = 0, bottomCutY = height, lowCountRows = 0, foundPlateau = false;
-    const scanStartY = Math.floor(height * 0.5); // 変数名をscanStartYに変更
-    const limitY = Math.floor(height * 0.8); 
-
+    const scanStartY = Math.floor(height * 0.5), limitY = Math.floor(height * 0.8); 
     for (let y = scanStartY; y < height; y++) {
         if (!foundPlateau) {
             if (allRowCounts[y] <= 40) { lowCountRows++; if (lowCountRows >= 3) foundPlateau = true; }
@@ -130,11 +127,10 @@
         if (y >= limitY && allRowCounts[y] <= 40) { bottomCutY = y; break; }
     }
 
-    // --- 2. 左右境界の特定 ---
+    // --- 2. 左右境界検知 (既存ロジック) ---
     const finalHeight = bottomCutY - topCutY;
     const analysisTop = Math.floor(topCutY + finalHeight * 0.25);
     const analysisBottom = Math.floor(bottomCutY - finalHeight * 0.25);
-    
     let colCounts = [];
     for (let x = 0; x < width; x++) {
         let u = new Set();
@@ -144,7 +140,6 @@
         }
         colCounts.push(u.size);
     }
-
     let leftX = 0, leftLow = 0, fGap = false;
     for (let x = 0; x < width; x++) {
         if (!fGap) { if (colCounts[x] <= 10) { leftLow++; if (leftLow >= 3) fGap = true; } else leftLow = 0; }
@@ -160,7 +155,7 @@
     canvas.height = finalHeight;
     ctx.drawImage(img, leftX, topCutY, finalWidth, finalHeight, 0, 0, finalWidth, finalHeight);
 
-    // --- 3. グリッド分割 & 色判定 ---
+    // --- 3. グリッド色判定 & マス目内の色数カウント ---
     const COLOR_PALETTE = {
         "赤": { r: 210, g: 50,  b: 50 },
         "青": { r: 50,  g: 100, b: 210 },
@@ -174,19 +169,6 @@
     const unitH = finalHeight / 13;
     const unitW = finalWidth / 8;
 
-    // グリッド線描画（確認用）
-    ctx.strokeStyle = "rgba(255, 255, 0, 0.8)";
-    ctx.lineWidth = 2;
-    let gridY = 0;
-    yRatios.forEach(ratio => {
-        gridY += ratio * unitH;
-        ctx.beginPath(); ctx.moveTo(0, gridY); ctx.lineTo(finalWidth, gridY); ctx.stroke();
-    });
-    for (let i = 1; i < 8; i++) {
-        ctx.beginPath(); ctx.moveTo(i * unitW, 0); ctx.lineTo(i * unitW, finalHeight); ctx.stroke();
-    }
-
-    // ぷよデータ抽出
     let puyoBoardData = [];
     let currentLoopY = 0;
 
@@ -208,18 +190,24 @@
             }
 
             let sumR = 0, sumG = 0, sumB = 0, count = 0;
+            let uniqueInCell = new Set(); // 🚀 マス目内の色数カウント用
+
             for (let py = Math.floor(sY); py < Math.floor(eY); py++) {
                 for (let px = Math.floor(sX); px < Math.floor(eX); px++) {
                     const i = (py * width + px) * 4;
                     const r = data[i], g = data[i+1], b = data[i+2];
-                    // 💡 工学的フィルタ：R, G, B すべてが 225 以上（ほぼ白）なら無視
-                    // これによりピンク（Gが低い）を維持しつつ、テカリだけを弾く
+
+                    // 全ピクセルを色数カウントには含める
+                    uniqueInCell.add((r << 16) | (g << 8) | b);
+
+                    // テカリ除外フィルタ（平均計算用）
                     if (r > 225 && g > 225 && b > 225) continue;
 
                     sumR += r; sumG += g; sumB += b;
                     count++;
                 }
             }
+
             if (count === 0) {
                 const midI = (Math.floor((sY + eY) / 2) * width + Math.floor((sX + eX) / 2)) * 4;
                 sumR = data[midI]; sumG = data[midI+1]; sumB = data[midI+2];
@@ -234,16 +222,18 @@
                 const d = Math.sqrt(Math.pow(avg.r-t.r,2)+Math.pow(avg.g-t.g,2)+Math.pow(avg.b-t.b,2));
                 if (d < minDest) { minDest = d; closestColor = colorName; }
             }
-            rowResult.push(closestColor);
+            
+            // 🚀 結果に色数を付与して保存 (例: "赤(145)")
+            rowResult.push(`${closestColor}(${uniqueInCell.size})`);
         }
         puyoBoardData.push(rowResult);
         currentLoopY += rowHeight;
     }
 
-    // 結果表示
+    // デバッグ表示
     stageArea.style.display = 'flex';
     generateYScale(finalHeight);
-    let out = `<span class="header-label">🧩 デジタル盤面データ:</span>\n`;
+    let out = `<span class="header-label">🧩 デジタル盤面データ ( )内はマス内の色数:</span>\n`;
     puyoBoardData.forEach((row, idx) => {
         out += `${idx === 0 ? "NEXT" : "ROW" + idx}: [ ${row.join(", ")} ]\n`;
     });
