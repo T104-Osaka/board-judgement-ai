@@ -202,26 +202,89 @@
         ctx.stroke();
     }
 
-    // セル中央座標の算出（デバッグ用）
-    let gridData = [];
-    let accumY = 0;
-    yRatios.forEach((ratio, rowIdx) => {
-        const cellH = ratio * unitH;
-        const centerY = accumY + (cellH / 2);
-        for (let colIdx = 0; colIdx < 8; colIdx++) {
-            const centerX = (colIdx * unitW) + (unitW / 2);
-            gridData.push({ row: rowIdx, col: colIdx, x: Math.floor(centerX), y: Math.floor(centerY) });
-        }
-        accumY += cellH;
-    });
-
-    // 結果表示
-    stageArea.style.display = 'flex';
-    generateYScale(finalHeight);
-    detectionMsg.innerHTML = `<span class="cut-notice">盤面を ${yRatios.join(':')} および 8分割でグリッド化しました</span>`;
     
-    resultBox.innerHTML = `<span class="header-label">📍 各セルの中心座標 (x, y):</span>\n` + 
-        JSON.stringify(gridData.slice(0, 16), null, 2) + "\n... (以下略)";
+    const COLOR_PALETTE = {
+        "赤": { r: 210, g: 50,  b: 50 },
+        "青": { r: 50,  g: 100, b: 210 },
+        "緑": { r: 50,  g: 160, b: 50 },
+        "黄": { r: 220, g: 200, b: 50 },
+        "紫": { r: 150, g: 50,  b: 180 },
+        "ピンク": { r: 230, g: 100, b: 180 }
+    };
+
+    const yRatios = [1, 2, 2, 2, 2, 2, 2];
+    const totalYUnits = 13;
+    const unitH = finalHeight / totalYUnits;
+    const unitW = finalWidth / 8;
+
+    let puyoBoardData = [];
+    let currentY = 0;
+
+    for (let row = 0; row < 7; row++) {
+        const rowHeight = yRatios[row] * unitH;
+        let rowResult = [];
+
+        for (let col = 0; col < 8; col++) {
+            // --- 🚀 サンプリング範囲 (ROI) の計算 ---
+            let startX, endX, startY, endY;
+
+            if (row === 0) {
+                // ネクストぷよ: 左右33%を除く（中央34%）
+                startX = leftX + (col * unitW) + (unitW * 0.33);
+                endX = leftX + (col * unitW) + (unitW * 0.67);
+                startY = topCutY + currentY; 
+                endY = topCutY + currentY + rowHeight;
+            } else {
+                // 盤面: 上下左右25%を除く（中央50%）
+                startX = leftX + (col * unitW) + (unitW * 0.25);
+                endX = leftX + (col * unitW) + (unitW * 0.75);
+                startY = topCutY + currentY + (rowHeight * 0.25);
+                endY = topCutY + currentY + (rowHeight * 0.75);
+            }
+
+            // --- 🚀 平均色の算出 ---
+            let sumR = 0, sumG = 0, sumB = 0, count = 0;
+            for (let py = Math.floor(startY); py < Math.floor(endY); py++) {
+                for (let px = Math.floor(startX); px < Math.floor(endX); px++) {
+                    const i = (py * width + px) * 4;
+                    sumR += data[i]; sumG += data[i+1]; sumB += data[i+2];
+                    count++;
+                }
+            }
+            const avg = { r: sumR / count, g: sumG / count, b: sumB / count };
+
+            // --- 🚀 最も近い色を判定（ユークリッド距離） ---
+            let minDest = Infinity;
+            let closestColor = "不明";
+            for (let colorName in COLOR_PALETTE) {
+                const target = COLOR_PALETTE[colorName];
+                const dist = Math.sqrt(
+                    Math.pow(avg.r - target.r, 2) + 
+                    Math.pow(avg.g - target.g, 2) + 
+                    Math.pow(avg.b - target.b, 2)
+                );
+                if (dist < minDest) {
+                    minDest = dist;
+                    closestColor = colorName;
+                }
+            }
+            rowResult.push(closestColor);
+        }
+        puyoBoardData.push(rowResult);
+        currentY += rowHeight;
+    }
+
+    // --- 🚀 デバッグ表示 ---
+    let outputHtml = `<span class="header-label">🧩 盤面デジタルデータ変換結果:</span>\n`;
+    puyoBoardData.forEach((row, idx) => {
+        const label = idx === 0 ? "NEXT" : `ROW${idx}`;
+        outputHtml += `${label}: [ ${row.join(", ")} ]\n`;
+    });
+    resultBox.innerHTML = outputHtml;
+
+    // キャンバスにROIの枠を描画（確認用）
+    ctx.strokeStyle = "rgba(0, 255, 0, 0.5)";
+    ctx.strokeRect(0, 0, finalWidth, finalHeight); // 全体
 }
 
     // ドラッグ&ドロップ
