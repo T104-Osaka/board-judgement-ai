@@ -3,43 +3,36 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>盤面色数プロファイラー</title>
+    <title>盤面位置特定プロファイラー</title>
     <style>
         body { font-family: sans-serif; text-align: center; background-color: #f0f2f5; padding: 20px; }
-        .container { max-width: 900px; margin: 0 auto; background: white; padding: 20px; border-radius: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); display: flex; flex-direction: column; align-items: center; }
-        
-        /* 写真と目盛りを並べるコンテナ */
-        .stage-area { display: flex; align-items: stretch; margin-top: 10px; border: 1px solid #ddd; padding: 5px; background-color: #fff; }
-        
-        /* 20分割の目盛り */
-        .y-scale { display: flex; flex-direction: column; width: 60px; justify-content: space-between; padding-right: 10px; border-right: 2px solid #333; font-family: monospace; font-size: 12px; text-align: right; }
-        .y-scale div { position: relative; height: 0; } /* 0高さで配置 */
-        .y-scale div::after { content: ""; position: absolute; right: -12px; top: 0; width: 8px; height: 1px; background: #333; }
-        .y-scale .tick-label { position: absolute; right: 0; top: -7px; }
-
-        #preview-canvas { max-width: calc(100% - 70px); height: auto; border: 1px solid #333; }
-        
-        .result-area { margin-top: 20px; text-align: left; background: #eee; padding: 15px; border-radius: 5px; width: calc(100% - 30px); }
-        #result-box { word-break: break-all; font-family: monospace; font-size: 14px; color: #2c3e50; line-height: 1.5; }
-        .btn { background-color: #3498db; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; }
+        .container { max-width: 950px; margin: 0 auto; background: white; padding: 20px; border-radius: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); display: flex; flex-direction: column; align-items: center; }
+        .stage-area { display: flex; align-items: stretch; margin-top: 10px; border: 1px solid #333; background-color: #fff; }
+        .y-scale { display: flex; flex-direction: column; width: 60px; justify-content: space-between; border-right: 2px solid #333; font-family: monospace; font-size: 12px; text-align: right; background: #eee; }
+        .y-scale div { height: 0; position: relative; }
+        .y-scale div::after { content: ""; position: absolute; right: 0; top: 0; width: 10px; height: 1px; background: #333; }
+        .tick-label { position: absolute; right: 12px; top: -7px; font-weight: bold; }
+        #preview-canvas { max-width: 800px; height: auto; }
+        .result-area { margin-top: 20px; text-align: left; background: #2c3e50; color: #ecf0f1; padding: 15px; border-radius: 5px; width: 100%; box-sizing: border-box; }
+        #result-box { font-family: 'Courier New', monospace; font-size: 13px; line-height: 1.6; white-space: pre-wrap; max-height: 400px; overflow-y: auto; }
+        .btn { background-color: #3498db; color: white; padding: 12px 24px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; }
+        .header-label { color: #f1c40f; font-weight: bold; margin: 10px 0; border-bottom: 1px dashed #f1c40f; display: block; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h1>📸 盤面垂直エントロピー解析</h1>
+    <h1>📈 垂直色数プロファイラー (20分割ラベル)</h1>
     <input type="file" id="file-input" accept="image/*" style="display: none;">
     <button class="btn" onclick="document.getElementById('file-input').click()">写真を選択して解析</button>
     
     <div id="stage" class="stage-area" style="display: none;">
-        <div id="y-scale-ticks" class="y-scale">
-            </div>
+        <div id="y-scale-ticks" class="y-scale"></div>
         <canvas id="preview-canvas"></canvas>
     </div>
     
     <div class="result-area">
-        <h3>解析結果 (行ごとの色数配列):</h3>
-        <div id="result-box">写真を選択するとここに結果が表示されます</div>
+        <div id="result-box">ここに解析結果が表示されます</div>
     </div>
 </div>
 
@@ -54,7 +47,6 @@
     fileInput.addEventListener('change', function(e) {
         const file = e.target.files[0];
         if (!file) return;
-
         const reader = new FileReader();
         reader.onload = function(event) {
             const img = new Image();
@@ -62,12 +54,8 @@
                 canvas.width = img.width;
                 canvas.height = img.height;
                 ctx.drawImage(img, 0, 0);
-                
-                // 表示エリアを出し、目盛りを生成
                 stageArea.style.display = 'flex';
                 generateYScale(img.height);
-                
-                // 解析実行
                 analyzeColorEntropy(img.height);
             };
             img.src = event.target.result;
@@ -75,23 +63,15 @@
         reader.readAsDataURL(file);
     });
 
-    // 20分割（5%刻み）の目盛りをHTMLで生成
     function generateYScale(height) {
-        yScaleTicks.innerHTML = ''; // クリア
+        yScaleTicks.innerHTML = '';
         for (let i = 0; i <= 20; i++) {
-            const percent = i * 5;
-            const pixelY = Math.floor(height * (percent / 100));
-            
-            const tickWrapper = document.createElement('div');
-            // 最初の0と最後の20だけラベルを表示
-            if (i === 0 || i === 20 || i % 2 === 0) {
-                const label = document.createElement('span');
-                label.className = 'tick-label';
-                // ラベルテキスト（%とpxを併記）
-                label.innerText = `${percent}%`;
-                tickWrapper.appendChild(label);
-            }
-            yScaleTicks.appendChild(tickWrapper);
+            const div = document.createElement('div');
+            const label = document.createElement('span');
+            label.className = 'tick-label';
+            label.innerText = `${i * 5}%`;
+            div.appendChild(label);
+            yScaleTicks.appendChild(div);
         }
     }
 
@@ -100,23 +80,28 @@
         const data = imageData.data;
         const width = canvas.width;
         
-        let rowColorCounts = [];
+        let outputHtml = "[\n";
+        const step = height / 20; // 5%ごとの行数
 
         for (let y = 0; y < height; y++) {
-            let uniqueColors = new Set();
-            
-            for (let x = 0; x < width; x++) {
-                const index = (y * width + x) * 4;
-                // 色の量子化 (ノイズ除去)
-                const quantizedColor = `${data[index] >> 4},${data[index + 1] >> 4},${data[index + 2] >> 4}`;
-                uniqueColors.add(quantizedColor);
+            // 5%ごとの区切りにラベルを挿入
+            if (y % Math.floor(step) === 0) {
+                const percent = Math.floor((y / height) * 100);
+                outputHtml += `<span class="header-label">--- ${percent}%地点 (${y}px) ---</span>`;
             }
-            rowColorCounts.push(uniqueColors.size);
-        }
 
-        // 分かりやすく、[値, 値, ..., 値] の形式で表示
-        resultBox.innerText = `[\n    ${rowColorCounts.join(', ')}\n]`;
-        console.log("Analysis complete. Check the result box.");
+            let uniqueColors = new Set();
+            for (let x = 0; x < width; x++) {
+                const i = (y * width + x) * 4;
+                const colorKey = (data[i]>>4 << 8) | (data[i+1]>>4 << 4) | (data[i+2]>>4);
+                uniqueColors.add(colorKey);
+            }
+            
+            outputHtml += uniqueColors.size + (y === height - 1 ? "" : ", ");
+            if (y % 10 === 9) outputHtml += "\n"; // 10個ごとに改行して見やすく
+        }
+        outputHtml += "\n]";
+        resultBox.innerHTML = outputHtml;
     }
 </script>
 
