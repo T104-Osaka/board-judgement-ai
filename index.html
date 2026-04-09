@@ -211,6 +211,7 @@
             for (let py = Math.floor(sY); py < Math.floor(eY); py++) {
                 for (let px = Math.floor(sX); px < Math.floor(eX); px++) {
                     const i = (py * width + px) * 4;
+                    const r = data[i], g = data[i+1], b = data[i+2];
                     // 💡 工学的フィルタ：R, G, B すべてが 225 以上（ほぼ白）なら無視
                     // これによりピンク（Gが低い）を維持しつつ、テカリだけを弾く
                     if (r > 225 && g > 225 && b > 225) continue;
