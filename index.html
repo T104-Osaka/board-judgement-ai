@@ -173,8 +173,8 @@
         for (let col = 0; col < 8; col++) {
             let sX, eX, sY, eY;
             if (row === 0) {
-                sX = leftX + (col * uW) + (uW * 0.33); eX = leftX + (col * uW) + (uW * 0.50);
-                sY = topCutY + currentLoopY; eY = topCutY + currentLoopY + rowHeight;
+                sX = leftX + (col * uW) + (uW * 0.33); eX = leftX + (col * uW) + (uW * 0.48);
+                sY = topCutY + currentLoopY + (rowHeight * 0.25); eY = topCutY + currentLoopY + (rowHeight * 0.50);
             } else {
                 sX = leftX + (col * uW) + (uW * 0.25); eX = leftX + (col * uW) + (uW * 0.75);
                 sY = topCutY + currentLoopY + (rowHeight * 0.25); eY = topCutY + currentLoopY + (rowHeight * 0.75);
