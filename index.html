@@ -2,13 +2,12 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>盤面境界検知プロファイラー (完全版)</title>
+    <meta name="viewport" content="width=1280">
+    <title>盤面境界検知プロファイラー (ボーナスエリア検知対応版)</title>
     <style>
         body { font-family: sans-serif; text-align: center; background-color: #f0f2f5; padding: 20px; margin: 0; }
         .container { max-width: 950px; margin: 0 auto; background: white; padding: 20px; border-radius: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); display: flex; flex-direction: column; align-items: center; }
         
-        /* ボタンのスタイル */
         .btn { background-color: #3498db; color: white; padding: 15px 30px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 16px; margin: 20px 0; transition: background 0.3s; }
         .btn:hover { background-color: #2980b9; }
 
@@ -23,7 +22,6 @@
         .result-area { margin-top: 20px; text-align: left; background: #2c3e50; color: #ecf0f1; padding: 15px; border-radius: 5px; width: 100%; box-sizing: border-box; }
         #result-box { font-family: 'Courier New', monospace; font-size: 13px; line-height: 1.6; white-space: pre-wrap; max-height: 400px; overflow-y: auto; }
         .header-label { color: #f1c40f; font-weight: bold; margin: 10px 0; border-bottom: 1px dashed #f1c40f; display: block; }
-        .cut-notice { background: #e74c3c; color: white; padding: 5px 10px; border-radius: 3px; font-size: 12px; margin-bottom: 10px; display: inline-block; font-weight: bold; }
         
         .drag-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(52, 152, 219, 0.9); z-index: 1000; justify-content: center; align-items: center; pointer-events: none; }
         .drag-overlay-text { font-size: 30px; color: white; font-weight: bold; }
@@ -38,7 +36,7 @@
 
 <div class="container">
     <h1>🔍 盤面境界検知・画像物理カット版</h1>
-    <p>50%より下を考え、40以下が3連して70以上が出たら、それより上をカット</p>
+    <p>50%より下を考え、40以下が3連して70以上が出たら、それより上をカット【BE検知拡張】</p>
     
     <input type="file" id="file-input" accept="image/*" style="display: none;">
     <button class="btn" onclick="document.getElementById('file-input').click()">写真を選択して解析</button>
@@ -65,7 +63,6 @@
     const stageArea = document.getElementById('stage');
     const yScaleTicks = document.getElementById('y-scale-ticks');
 
-    // 🚀 ボタンからの入力を処理
     fileInput.addEventListener('change', (e) => {
         if (e.target.files.length > 0) handleImage(e.target.files[0]);
     });
@@ -105,7 +102,7 @@
     const width = img.width;
     const height = img.height;
     
-    // --- 1. 垂直・水平の境界検知（既存ロジック） ---
+    // --- 1. 垂直・水平の境界検知 ---
     let allRowCounts = [];
     for (let y = 0; y < height; y++) {
         let unique = new Set();
@@ -172,14 +169,58 @@
         let rowResult = [];
         for (let col = 0; col < 8; col++) {
             let sX, eX, sY, eY;
+            // マスの物理絶対境界を算出（フチ検出用ベース）
+            const cellLeft = leftX + (col * uW);
+            const cellRight = leftX + ((col + 1) * uW);
+            const cellTop = topCutY + currentLoopY;
+            const cellBottom = topCutY + currentLoopY + rowHeight;
+
             if (row === 0) {
-                sX = leftX + (col * uW) + (uW * 0.33); eX = leftX + (col * uW) + (uW * 0.48);
-                sY = topCutY + currentLoopY + (rowHeight * 0.33); eY = topCutY + currentLoopY + (rowHeight * 0.55);
+                sX = cellLeft + (uW * 0.33); eX = cellLeft + (uW * 0.48);
+                sY = cellTop + (rowHeight * 0.33); eY = cellTop + (rowHeight * 0.55);
             } else {
-                sX = leftX + (col * uW) + (uW * 0.25); eX = leftX + (col * uW) + (uW * 0.75);
-                sY = topCutY + currentLoopY + (rowHeight * 0.25); eY = topCutY + currentLoopY + (rowHeight * 0.75);
+                sX = cellLeft + (uW * 0.25); eX = cellLeft + (uW * 0.75);
+                sY = cellTop + (rowHeight * 0.25); eY = cellTop + (rowHeight * 0.75);
             }
 
+            // --- 💡 🚀 ボーナスエリア（黄色い光る枠）の検知ロジック ---
+            let isBonusArea = 0;
+            if (row > 0) { // NEXT以外の本盤面のみ判定
+                let borderSumR = 0, borderSumG = 0, borderSumB = 0, borderCount = 0;
+                
+                // マスの四隅の内側（フチから3px〜6pxのライン）をサンプリング
+                const offsetIn = 4; 
+                const samplePoints = [
+                    { x: cellLeft + offsetIn,  y: cellTop + offsetIn },     // 左上
+                    { x: cellRight - offsetIn, y: cellTop + offsetIn },     // 右上
+                    { x: cellLeft + offsetIn,  y: cellBottom - offsetIn },  // 左下
+                    { x: cellRight - offsetIn, y: cellBottom - offsetIn }   // 右下
+                ];
+
+                samplePoints.forEach(pt => {
+                    const px = Math.floor(pt.x);
+                    const py = Math.floor(pt.y);
+                    if (px >= 0 && px < width && py >= 0 && py < height) {
+                        const idx = (py * width + px) * 4;
+                        borderSumR += data[idx];
+                        borderSumG += data[idx+1];
+                        borderSumB += data[idx+2];
+                        borderCount++;
+                    }
+                });
+
+                if (borderCount > 0) {
+                    const bAvgR = borderSumR / borderCount;
+                    const bAvgG = borderSumG / borderCount;
+                    const bAvgB = borderSumB / borderCount;
+                    // 黄色〜白に強く光る輝度条件（RとGが高く、Bが低い）
+                    if (bAvgR > 150 && bAvgG > 150 && bAvgB < 130) {
+                        isBonusArea = 1;
+                    }
+                }
+            }
+
+            // --- 通常のぷよ色判定 ---
             let sumR = 0, sumG = 0, sumB = 0, count = 0;
             let uniqueInCell = new Set();
 
@@ -189,28 +230,21 @@
                     const r = data[i], g = data[i+1], b = data[i+2];
                     uniqueInCell.add((r << 16) | (g << 8) | b);
 
-                    // 💡 平均用：ほぼ白の部分は除外するが、後の判定のために全ピクセルを考慮
-                    if (r > 240 && g > 240 && b > 240) continue;
+                    if (r > 240 && g > 240 && b > 240) continue; // テカリ除外
                     sumR += r; sumG += g; sumB += b; count++;
                 }
             }
-            if (count === 0) { // 全テカリ時のセーフティ
+            if (count === 0) {
                 const mi = (Math.floor((sY+eY)/2)*width + Math.floor((sX+eX)/2))*4;
                 sumR = data[mi]; sumG = data[mi+1]; sumB = data[mi+2]; count = 1;
             }
             const avg = { r: sumR / count, g: sumG / count, b: sumB / count };
             let closestColor = "不明";
 
-            // --- 🚀 今回の核心：G/R比率判定 ---
-            if (row !== 0 &&uniqueInCell.size <= 300) {
-                // 色数が少ない（テカっている）時、GがRの86%以上なら黄色、未満ならピンク
-                if (avg.g >= avg.r * 0.86) {
-                    closestColor = "黄";
-                } else {
-                    closestColor = "ピンク";
-                }
+            if (row !== 0 && uniqueInCell.size <= 300) {
+                if (avg.g >= avg.r * 0.86) { closestColor = "黄"; } 
+                else { closestColor = "ピンク"; }
             } else {
-                // 通常時（色数が多い）はユークリッド距離で5色を判定
                 let minDest = Infinity;
                 for (let colorName in COLOR_PALETTE) {
                     const t = COLOR_PALETTE[colorName];
@@ -218,16 +252,18 @@
                     if (d < minDest) { minDest = d; closestColor = colorName; }
                 }
             }
-            rowResult.push(`${closestColor}(${uniqueInCell.size})`);
+            // 配列に色名、色数、BEフラグをオブジェクトで格納
+            rowResult.push({ color: closestColor, size: uniqueInCell.size, be: isBonusArea });
         }
         puyoBoardData.push(rowResult);
         currentLoopY += rowHeight;
     }
 
     stageArea.style.display = 'flex'; generateYScale(finalHeight);
-    let out = `<span class="header-label">🧩 盤面変換結果:</span>\n`;
+    let out = `<span class="header-label">🧩 盤面変換結果 (BE = ボーナスエリアフラグ):</span>\n`;
     puyoBoardData.forEach((row, idx) => {
-        out += `${idx === 0 ? "NEXT" : "ROW" + idx}: [ ${row.join(", ")} ]\n`;
+        const rowText = row.map(cell => `${cell.color}(${cell.size})[BE:${cell.be}]`).join(", ");
+        out += `${idx === 0 ? "NEXT" : "ROW" + idx}: [ ${rowText} ]\n`;
     });
     resultBox.innerHTML = out;
 }
