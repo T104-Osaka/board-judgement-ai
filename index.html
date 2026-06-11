@@ -228,10 +228,9 @@
                     debugBeggG = Math.floor(borderSumG / borderCount);
                     debugBeggB = Math.floor(borderSumB / borderCount);
                     
-                    // 💡 【判定アルゴリズムの修正】不透明シールドを外し、相対色差（半透明）で検知
-                    // 黄色の特性（RとGがほぼ同じ強さで、かつBよりも圧倒的に強い）を差分で検出
-                    const yellowThreshold = 35; // R,G成分がB成分よりどれだけ突出しているか
-                    if (debugBeggR > 130 && debugBeggG > 130 && (debugBeggR - debugBeggB > yellowThreshold) && (debugBeggG - debugBeggB > yellowThreshold)) {
+                   // 💡 【確定アルゴリズム】黄色い枠線の「白飛びするほどの超高輝度発光」を検知
+                    // 通常の背景（R:140台）やぷよ本体と完全に分離するため、RとGが200以上を閾値にする
+                    if (debugBeggR >= 200 && debugBeggG >= 200) {
                         isBonusArea = 1;
                     }
                 }
