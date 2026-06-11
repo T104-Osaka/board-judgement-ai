@@ -3,10 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=1280">
-    <title>盤面境界検知プロファイラー (ボーナスエリア検知対応版)</title>
+    <title>盤面境界検知プロファイラー (BEデバッグ強化版)</title>
     <style>
         body { font-family: sans-serif; text-align: center; background-color: #f0f2f5; padding: 20px; margin: 0; }
-        .container { max-width: 950px; margin: 0 auto; background: white; padding: 20px; border-radius: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); display: flex; flex-direction: column; align-items: center; }
+        .container { max-width: 1200px; margin: 0 auto; background: white; padding: 20px; border-radius: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); display: flex; flex-direction: column; align-items: center; }
         
         .btn { background-color: #3498db; color: white; padding: 15px 30px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 16px; margin: 20px 0; transition: background 0.3s; }
         .btn:hover { background-color: #2980b9; }
@@ -19,9 +19,12 @@
 
         #preview-canvas { max-width: 800px; height: auto; }
         
-        .result-area { margin-top: 20px; text-align: left; background: #2c3e50; color: #ecf0f1; padding: 15px; border-radius: 5px; width: 100%; box-sizing: border-box; }
-        #result-box { font-family: 'Courier New', monospace; font-size: 13px; line-height: 1.6; white-space: pre-wrap; max-height: 400px; overflow-y: auto; }
-        .header-label { color: #f1c40f; font-weight: bold; margin: 10px 0; border-bottom: 1px dashed #f1c40f; display: block; }
+        /* 🚀 デバッグエリアを2段並列にするためのレイアウト */
+        .results-wrapper { display: flex; gap: 20px; width: 100%; margin-top: 20px; box-sizing: border-box; }
+        .result-area { flex: 1; text-align: left; background: #2c3e50; color: #ecf0f1; padding: 15px; border-radius: 5px; box-sizing: border-box; }
+        .result-box { font-family: 'Courier New', monospace; font-size: 12px; line-height: 1.6; white-space: pre-wrap; max-height: 450px; overflow-y: auto; background: #1a252f; padding: 10px; border-radius: 4px; border: 1px solid #34495e; }
+        
+        .header-label { color: #f1c40f; font-weight: bold; margin-bottom: 8px; display: block; font-size: 14px; }
         
         .drag-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(52, 152, 219, 0.9); z-index: 1000; justify-content: center; align-items: center; pointer-events: none; }
         .drag-overlay-text { font-size: 30px; color: white; font-weight: bold; }
@@ -36,7 +39,7 @@
 
 <div class="container">
     <h1>🔍 盤面境界検知・画像物理カット版</h1>
-    <p>50%より下を考え、40以下が3連して70以上が出たら、それより上をカット【BE検知拡張】</p>
+    <p>50%より下を考え、40以下が3連して70以上が出たら、それより上をカット</p>
     
     <input type="file" id="file-input" accept="image/*" style="display: none;">
     <button class="btn" onclick="document.getElementById('file-input').click()">写真を選択して解析</button>
@@ -48,9 +51,15 @@
         <canvas id="preview-canvas"></canvas>
     </div>
     
-    <div class="result-area">
-        <h3>解析デバッグデータ (カット後の配列):</h3>
-        <div id="result-box">画像を選択するとここに結果が表示されます</div>
+    <div class="results-wrapper">
+        <div class="result-area">
+            <span class="header-label">🎨 ① 盤面色判定結果 (シミュレータ同期用)</span>
+            <div id="result-box-color" class="result-box">画像を選択すると色情報が表示されます</div>
+        </div>
+        <div class="result-area">
+            <span class="header-label">⚡ ② ボーナスエリア解析ログ (フチの平均RGB値)</span>
+            <div id="result-box-be" class="result-box">画像を選択するとBE解析データが表示されます</div>
+        </div>
     </div>
 </div>
 
@@ -58,8 +67,8 @@
     const fileInput = document.getElementById('file-input');
     const canvas = document.getElementById('preview-canvas');
     const ctx = canvas.getContext('2d');
-    const resultBox = document.getElementById('result-box');
-    const detectionMsg = document.getElementById('detection-msg');
+    const resultBoxColor = document.getElementById('result-box-color');
+    const resultBoxBe = document.getElementById('result-box-be');
     const stageArea = document.getElementById('stage');
     const yScaleTicks = document.getElementById('y-scale-ticks');
 
@@ -162,14 +171,18 @@
 
     const yRatios = [1, 2, 2, 2, 2, 2, 2];
     const uH = finalHeight / 13, uW = finalWidth / 8;
-    let puyoBoardData = [], currentLoopY = 0;
+    
+    let colorOutputText = "";
+    let beOutputText = "";
+    let currentLoopY = 0;
 
     for (let row = 0; row < 7; row++) {
         const rowHeight = yRatios[row] * uH;
-        let rowResult = [];
+        let rowColors = [];
+        let rowBes = [];
+
         for (let col = 0; col < 8; col++) {
             let sX, eX, sY, eY;
-            // マスの物理絶対境界を算出（フチ検出用ベース）
             const cellLeft = leftX + (col * uW);
             const cellRight = leftX + ((col + 1) * uW);
             const cellTop = topCutY + currentLoopY;
@@ -183,18 +196,19 @@
                 sY = cellTop + (rowHeight * 0.25); eY = cellTop + (rowHeight * 0.75);
             }
 
-            // --- 💡 🚀 ボーナスエリア（黄色い光る枠）の検知ロジック ---
+            // --- 💡 🚀 強化版ボーナスエリア（半透明黄色枠）の検知ロジック ---
             let isBonusArea = 0;
-            if (row > 0) { // NEXT以外の本盤面のみ判定
+            let debugBeggR = 0, debugBeggG = 0, debugBeggB = 0;
+            
+            if (row > 0) { 
                 let borderSumR = 0, borderSumG = 0, borderSumB = 0, borderCount = 0;
+                const offsetIn = 4; // マスの内側フチ4pxの地点を狙う
                 
-                // マスの四隅の内側（フチから3px〜6pxのライン）をサンプリング
-                const offsetIn = 4; 
                 const samplePoints = [
-                    { x: cellLeft + offsetIn,  y: cellTop + offsetIn },     // 左上
-                    { x: cellRight - offsetIn, y: cellTop + offsetIn },     // 右上
-                    { x: cellLeft + offsetIn,  y: cellBottom - offsetIn },  // 左下
-                    { x: cellRight - offsetIn, y: cellBottom - offsetIn }   // 右下
+                    { x: cellLeft + offsetIn,  y: cellTop + offsetIn },
+                    { x: cellRight - offsetIn, y: cellTop + offsetIn },
+                    { x: cellLeft + offsetIn,  y: cellBottom - offsetIn },
+                    { x: cellRight - offsetIn, y: cellBottom - offsetIn }
                 ];
 
                 samplePoints.forEach(pt => {
@@ -210,11 +224,14 @@
                 });
 
                 if (borderCount > 0) {
-                    const bAvgR = borderSumR / borderCount;
-                    const bAvgG = borderSumG / borderCount;
-                    const bAvgB = borderSumB / borderCount;
-                    // 黄色〜白に強く光る輝度条件（RとGが高く、Bが低い）
-                    if (bAvgR > 150 && bAvgG > 150 && bAvgB < 130) {
+                    debugBeggR = Math.floor(borderSumR / borderCount);
+                    debugBeggG = Math.floor(borderSumG / borderCount);
+                    debugBeggB = Math.floor(borderSumB / borderCount);
+                    
+                    // 💡 【判定アルゴリズムの修正】不透明シールドを外し、相対色差（半透明）で検知
+                    // 黄色の特性（RとGがほぼ同じ強さで、かつBよりも圧倒的に強い）を差分で検出
+                    const yellowThreshold = 35; // R,G成分がB成分よりどれだけ突出しているか
+                    if (debugBeggR > 130 && debugBeggG > 130 && (debugBeggR - debugBeggB > yellowThreshold) && (debugBeggG - debugBeggB > yellowThreshold)) {
                         isBonusArea = 1;
                     }
                 }
@@ -230,7 +247,7 @@
                     const r = data[i], g = data[i+1], b = data[i+2];
                     uniqueInCell.add((r << 16) | (g << 8) | b);
 
-                    if (r > 240 && g > 240 && b > 240) continue; // テカリ除外
+                    if (r > 240 && g > 240 && b > 240) continue;
                     sumR += r; sumG += g; sumB += b; count++;
                 }
             }
@@ -252,20 +269,28 @@
                     if (d < minDest) { minDest = d; closestColor = colorName; }
                 }
             }
-            // 配列に色名、色数、BEフラグをオブジェクトで格納
-            rowResult.push({ color: closestColor, size: uniqueInCell.size, be: isBonusArea });
+            
+            // 左右のデバッグ文字列を生成
+            rowColors.push(`${closestColor}(${uniqueInCell.size})`);
+            
+            if (row === 0) {
+                rowBes.push(`NEXT(判定対象外)`);
+            } else {
+                // 🚀 平均値のRGB（R, G, B）とBE判定結果を可視化
+                rowBes.push(`[BE:${isBonusArea}](${debugBeggR},${debugBeggG},${debugBeggB})`);
+            }
         }
-        puyoBoardData.push(rowResult);
+        
+        const label = row === 0 ? "NEXT " : `ROW${row} `;
+        colorOutputText += `${label}: [ ${rowColors.join(", ")} ]\n`;
+        beOutputText += `${label}: [ ${rowBes.join(" | ")} ]\n`;
+        
         currentLoopY += rowHeight;
     }
 
     stageArea.style.display = 'flex'; generateYScale(finalHeight);
-    let out = `<span class="header-label">🧩 盤面変換結果 (BE = ボーナスエリアフラグ):</span>\n`;
-    puyoBoardData.forEach((row, idx) => {
-        const rowText = row.map(cell => `${cell.color}(${cell.size})[BE:${cell.be}]`).join(", ");
-        out += `${idx === 0 ? "NEXT" : "ROW" + idx}: [ ${rowText} ]\n`;
-    });
-    resultBox.innerHTML = out;
+    resultBoxColor.innerHTML = colorOutputText;
+    resultBoxBe.innerHTML = beOutputText;
 }
 
     // ドラッグ&ドロップ
