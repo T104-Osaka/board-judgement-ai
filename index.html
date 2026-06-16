@@ -18,25 +18,28 @@
 
         /* 2分割レイアウト */
         .workspace { display: flex; gap: 25px; width: 100%; margin-top: 15px; align-items: flex-start; }
-        .left-panel { flex: 0 0 450px; display: flex; flex-direction: column; align-items: center; }
-        .right-panel { flex: 1; display: flex; flex-direction: column; gap: 20px; }
+        .left-panel { flex: 0 0 400px; display: flex; flex-direction: column; align-items: center; }
+        .right-panel { flex: 1; display: flex; flex-direction: column; gap: 20px; width: calc(100% - 425px); }
 
         /* キャンバスとグリッドの重ね合わせインフラ */
-        .canvas-container { position: relative; background: #000; border: 1px solid #333; display: inline-block; }
-        #preview-canvas { display: block; max-width: 400px; height: auto; }
+        .canvas-container { position: relative; background: #000; border: 1px solid #333; display: inline-block; width: 400px; }
+        #preview-canvas { display: block; width: 400px; height: auto; }
         
-        /* 物理マス分割UI */
+        /* 物理マス分割UI (縦横2等分を再現するため grid を配置) */
         .board-grid-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: grid; grid-template-columns: repeat(8, 1fr); grid-template-rows: 1fr repeat(6, 2fr); pointer-events: none; }
         .cell-ui { border: 1px solid rgba(255,255,255,0.2); position: relative; pointer-events: auto; box-sizing: border-box; }
         .cell-ui:hover { background-color: rgba(255,255,255,0.15); }
         
-        /* 右上のセレクトボックス */
-        .color-selector { position: absolute; top: 2px; right: 2px; font-size: 10px; font-weight: bold; padding: 0; margin: 0; background: rgba(0,0,0,0.8); color: white; border: 1px solid #fff; border-radius: 3px; cursor: pointer; z-index: 10; }
+        /* マス目を縦横2等分した右上にピッタリ収める配置 */
+        .color-selector { position: absolute; top: 0; right: 0; width: 50%; height: 50%; font-size: 11px; font-weight: bold; padding: 0; margin: 0; background: rgba(0,0,0,0.85); color: white; border: 1px solid #fff; border-radius: 0 0 0 4px; cursor: pointer; z-index: 10; text-align: center; }
         
-        /* グラフエリアの3面グリッド */
-        .charts-container { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; width: 100%; }
-        .chart-card { background: #f8f9fa; padding: 10px; border-radius: 8px; border: 1px solid #ddd; }
+        /* 🚀 グラフエリアの3面グリッド (拡大バグを防ぐため、高さを固定してoverflowを制御) */
+        .charts-container { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; width: 100%; box-sizing: border-box; }
+        .chart-card { background: #f8f9fa; padding: 10px; border-radius: 8px; border: 1px solid #ddd; box-sizing: border-box; }
         .chart-card h4 { margin: 0 0 8px 0; font-size: 13px; color: #333; }
+        
+        /* 🚀 Chart.jsのコンテナサイズをCSSで絶対固定（これで再レンダリング時の拡大を完全防御） */
+        .chart-wrapper { position: relative; width: 100%; height: 260px; }
         
         .log-area { text-align: left; background: #2c3e50; color: #ecf0f1; padding: 12px; border-radius: 5px; box-sizing: border-box; width: 100%; font-family: monospace; font-size: 12px; }
         .drag-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(52, 152, 219, 0.9); z-index: 1000; justify-content: center; align-items: center; pointer-events: none; }
@@ -53,7 +56,7 @@
     
     <div style="display:flex; gap:10px;">
         <button class="btn" onclick="document.getElementById('file-input').click()">📷 写真を選択</button>
-        <button class="btn btn-success" id="btn-save" onclick="commitTeacherData()" disabled>填入 ──► 💾 データを確定して蓄積</button>
+        <button class="btn btn-success" id="btn-save" onclick="commitTeacherData()" disabled>💾 データを確定して蓄積</button>
         <button class="btn btn-danger" onclick="clearDatabase()">🗑️ データを初期化</button>
         <input type="file" id="file-input" accept="image/*" style="display: none;">
     </div>
@@ -69,9 +72,9 @@
 
         <div class="right-panel">
             <div class="charts-container">
-                <div class="chart-card"><h4>📈 R - G 空間散布図</h4><canvas id="chart-rg"></canvas></div>
-                <div class="chart-card"><h4>📈 G - B 空間散布図</h4><canvas id="chart-gb"></canvas></div>
-                <div class="chart-card"><h4>📈 R - B 空間散布図</h4><canvas id="chart-rb"></canvas></div>
+                <div class="chart-card"><h4>📈 R - G 空間散布図</h4><div class="chart-wrapper"><canvas id="chart-rg"></canvas></div></div>
+                <div class="chart-card"><h4>📈 G - B 空間散布図</h4><div class="chart-wrapper"><canvas id="chart-gb"></canvas></div></div>
+                <div class="chart-card"><h4>📈 R - B 空間散布図</h4><div class="chart-wrapper"><canvas id="chart-rb"></canvas></div></div>
             </div>
             <div class="log-area">
                 <strong>📊 蓄積データ統計カウント:</strong>
@@ -90,16 +93,12 @@
     const statsLog = document.getElementById('stats-log');
     const stage = document.getElementById('stage');
 
-    // 色定義のマップ
+    // 色定義のマップ（0番を「ハート」として明確に分離）
     const LABEL_MAP = { "0": "ハート", "1": "赤", "2": "青", "3": "緑", "4": "黄", "5": "紫", "不明": "不明" };
-    const CHART_COLORS = { "0": "#ff9ff3", "1": "#ff5252", "2": "#54a0ff", "3": "#5f27cd", "4": "#feca57", "5": "#a55eea" };
+    const CHART_COLORS = { "0": "#ff9ff3", "1": "#ff3e3e", "2": "#4da3ff", "3": "#3eff3e", "4": "#ffeb3e", "5": "#ae81ff" };
 
-    // 仮データ保持用バッファ (56マス分)
     let temporaryCellBuffer = [];
-    // 永続データベースバッファ (ローカルストレージと同期)
     let teacherDatabase = JSON.parse(localStorage.getItem('puyo_rgb_teacher_db')) || [];
-
-    // Chart.js インスタンス保持用
     let charts = { rg: null, gb: null, rb: null };
 
     fileInput.addEventListener('change', (e) => { if (e.target.files.length > 0) handleImage(e.target.files[0]); });
@@ -125,7 +124,7 @@
         const data = imageData.data;
         const width = img.width; const height = img.height;
         
-        // --- 垂直・水平境界検知コアロジック ---
+        // --- 垂直・水平境界検知 ---
         let allRowCounts = [];
         for (let y = 0; y < height; y++) {
             let unique = new Set();
@@ -170,7 +169,6 @@
         canvas.width = finalWidth; canvas.height = finalHeight;
         ctx.drawImage(img, leftX, topCutY, finalWidth, finalHeight, 0, 0, finalWidth, finalHeight);
 
-        // --- 仮データ初期化とサンプリング処理 ---
         const COLOR_PALETTE = {
             "1": { r: 210, g: 50,  b: 50 },  "2": { r: 50,  g: 100, b: 210 },
             "3": { r: 50,  g: 160, b: 50 },  "4": { r: 220, g: 200, b: 50 },
@@ -183,33 +181,37 @@
         temporaryCellBuffer = [];
         gridOverlay.innerHTML = '';
 
+        // 🚀【同期完了】シミュレータ本体の読み取り範囲のロジックと1ピクセル単位で完全統一
         for (let row = 0; row < 7; row++) {
             const rowHeight = yRatios[row] * uH;
             for (let col = 0; col < 8; col++) {
-                let sX = leftX + (col * uW) + (uW * 0.25);
-                let eX = leftX + (col * uW) + (uW * 0.75);
-                let sY = topCutY + currentLoopY + (rowHeight * 0.25);
-                let eY = topCutY + currentLoopY + (rowHeight * 0.75);
+                let sX, eX, sY, eY;
+                const cellLeft = leftX + (col * uW);
+                const cellRight = leftX + ((col + 1) * uW);
+                const cellTop = topCutY + currentLoopY;
+                const cellBottom = topCutY + currentLoopY + rowHeight;
 
                 if (row === 0) {
-                    sX = leftX + (col * uW) + (uW * 0.33); eX = leftX + (col * uW) + (uW * 0.48);
-                    sY = topCutY + currentLoopY + (rowHeight * 0.33); eY = topCutY + currentLoopY + (rowHeight * 0.55);
+                    sX = cellLeft + (uW * 0.33); eX = cellLeft + (uW * 0.48);
+                    sY = cellTop + (rowHeight * 0.33); eY = cellTop + (rowHeight * 0.55);
+                } else {
+                    sX = cellLeft + (uW * 0.25); eX = cellLeft + (uW * 0.75);
+                    sY = cellTop + (rowHeight * 0.25); eY = cellTop + (rowHeight * 0.75);
                 }
 
-                // 1. 平均値(RGB)の算出ループ（中央50%）
+                // 1. 【平均値の計算】範囲は本体と全く同じ中央50%を維持
                 let sumR = 0, sumG = 0, sumB = 0, count = 0;
-                let uniqueInCell = new Set();
-
                 for (let py = Math.floor(sY); py < Math.floor(eY); py++) {
                     for (let px = Math.floor(sX); px < Math.floor(eX); px++) {
                         const i = (py * width + px) * 4;
                         const r = data[i], g = data[i+1], b = data[i+2];
-                        if (r > 240 && g > 240 && b > 240) continue;
+                        if (r > 240 && g > 240 && b > 240) continue; // テカリ排除
                         sumR += r; sumG += g; sumB += b; count++;
                     }
                 }
 
-                // 2. ユニーク色数の算出ループ（中央50%の上半分）
+                // 2. 【色数のカウント】平均値エリアの『上半分』のピクセルだけを集計する本体の最新構造
+                let uniqueInCell = new Set();
                 const colorCountStartY = Math.floor(sY);
                 const colorCountEndY   = Math.floor(sY + (eY - sY) * 0.5);
                 for (let py = colorCountStartY; py < colorCountEndY; py++) {
@@ -224,10 +226,11 @@
                     sumR = data[mi]; sumG = data[mi+1]; sumB = data[mi+2]; count = 1;
                 }
 
-                const avg = { r: Math.round(sumR / count), g: Math.round(sumG / count), b: Math.round(sumB / count) };
-                let detectedId = "不明";
+                const avg = { r: sumR / count, g: sumG / count, b: sumB / count };
+                let detectedId = "0"; // デフォルトは0(ハート)
 
-                if (row !== 0 && uniqueInCell.size <= 300) {
+                // 本体側のコア色分岐ツリーを完全に再現
+                if (row !== 0 && uniqueInCell.size <= 200) {
                     detectedId = (avg.g >= avg.r * 0.86) ? "4" : "0"; 
                 } else if (row !== 0) {
                     let minDest = Infinity;
@@ -238,11 +241,10 @@
                     }
                 }
 
-                // バッファに仮データとして格納
                 const cellIndex = row * 8 + col;
-                temporaryCellBuffer.push({ index: cellIndex, row: row, col: col, r: avg.r, g: avg.g, b: avg.b, label: detectedId });
+                temporaryCellBuffer.push({ index: cellIndex, row: row, col: col, r: Math.round(avg.r), g: Math.round(avg.g), b: Math.round(avg.b), label: detectedId });
 
-                // 💡 マス目を縦横2等分し、その右上に選択式メニューを物理配置するUI構築
+                // マス目の右上にセレクトメニューを物理配置
                 const cellUi = document.createElement('div');
                 cellUi.className = 'cell-ui';
                 
@@ -250,7 +252,6 @@
                 select.className = 'color-selector';
                 select.id = `select-cell-${cellIndex}`;
                 
-                // オプション要素の生成
                 for (let val in LABEL_MAP) {
                     const opt = document.createElement('option');
                     opt.value = val; opt.innerText = LABEL_MAP[val];
@@ -258,7 +259,6 @@
                     select.appendChild(opt);
                 }
 
-                // 人間がドロップダウンを変更した時に、リアルタイムで仮データを修正保存する機構
                 select.addEventListener('change', (e) => {
                     temporaryCellBuffer[cellIndex].label = e.target.value;
                 });
@@ -274,29 +274,23 @@
         document.getElementById('detection-msg').innerText = "⌛ 人間の目による答えの確認・修正待ち...";
     }
 
-    // 🚀 人間が「データを確定して蓄積」ボタンを押したときの確定処理
     function commitTeacherData() {
         let addedCount = 0;
         temporaryCellBuffer.forEach(cell => {
-            // NEXT(row 0) および 人間が「不明」のままにしたマスは統計ノイズになるため除外
             if (cell.row > 0 && cell.label !== "不明") {
                 teacherDatabase.push({ r: cell.r, g: cell.g, b: cell.b, label: cell.label });
                 addedCount++;
             }
         });
 
-        // 永続ローカルストレージへのセーブ
         localStorage.setItem('puyo_rgb_teacher_db', JSON.stringify(teacherDatabase));
-        
         document.getElementById('detection-msg').innerText = `✅ 成功：本番面から ${addedCount} 個のRGB教師データを蓄積しました！`;
         btnSave.disabled = true;
         
-        // グラフの再描画更新
         renderScatterCharts();
         updateStatsLog();
     }
 
-    // 🗑️ データベースの初期化
     function clearDatabase() {
         if (confirm("これまでに蓄積したすべてのRGB統計データを削除しますか？")) {
             teacherDatabase = [];
@@ -316,7 +310,7 @@
         statsLog.innerText = logText;
     }
 
-    // 📈 3つの2次元散布図 (R-G, G-B, R-B) を一括生成・プロットする描画関数
+    // 🚀【バグ修正版】再レンダリング時にグラフが無限に自己拡大していく現象を完全に抑え込むロジック
     function renderScatterCharts() {
         const configKeys = [
             { id: 'chart-rg', xKey: 'r', yKey: 'g', xLabel: 'R (赤成分)', yLabel: 'G (緑成分)' },
@@ -325,7 +319,6 @@
         ];
 
         configKeys.forEach(cfg => {
-            // 色IDごとにChart.jsが要求する形式のデータセットに綺麗に仕分ける
             const datasets = Object.keys(CHART_COLORS).map(labelId => {
                 const filteredPoints = teacherDatabase
                     .filter(item => item.label === labelId)
@@ -335,34 +328,34 @@
                     label: LABEL_MAP[labelId],
                     data: filteredPoints,
                     backgroundColor: CHART_COLORS[labelId],
-                    pointRadius: 5,
-                    pointHoverRadius: 7
+                    pointRadius: 4.5,
+                    pointHoverRadius: 6
                 };
             });
 
-            // 既存のグラフオブジェクトがあれば、工学的なメモリリークを防ぐため破棄
             const chartKey = cfg.id.split('-')[1];
+            // 💡 メモリ空間上のキャンバスインスタンスを完全にデストロイして再生成
             if (charts[chartKey]) { charts[chartKey].destroy(); }
 
-            // 描画処理
             const canvasCtx = document.getElementById(cfg.id).getContext('2d');
             charts[chartKey] = new Chart(canvasCtx, {
                 type: 'scatter',
                 data: { datasets: datasets },
                 options: {
                     responsive: true,
-                    maintainAspectRatio: false,
+                    maintainAspectRatio: false, // ラッパーの height: 260px に完全に追従させる
+                    layout: { padding: 4 },
                     scales: {
-                        x: { min: 0, max: 255, title: { display: true, text: cfg.xLabel, font: { weight: 'bold' } } },
-                        y: { min: 0, max: 255, title: { display: true, text: cfg.yLabel, font: { weight: 'bold' } } }
+                        x: { min: 0, max: 255, title: { display: true, text: cfg.xLabel, font: { weight: 'bold', size: 11 } } },
+                        y: { min: 0, max: 255, title: { display: true, text: cfg.yLabel, font: { weight: 'bold', size: 11 } } }
                     },
-                    plugins: { legend: { labels: { boxWidth: 10, font: { size: 10 } } } }
+                    plugins: { legend: { labels: { boxWidth: 8, font: { size: 10 } } } }
                 }
             });
         });
     }
 
-    // ドラッグ＆ドロップ制御
+    // ドラッグ＆ドロップ
     document.addEventListener('dragover', (e) => { e.preventDefault(); document.body.classList.add('drag-active'); });
     document.addEventListener('dragleave', (e) => {
         if (e.relatedTarget === null || !document.body.contains(e.relatedTarget)) document.body.classList.remove('drag-active');
@@ -372,7 +365,6 @@
         if (e.dataTransfer.files.length > 0) handleImage(e.dataTransfer.files[0]);
     });
 
-    // 起動時にグラフと統計ログの初期レンダリングを実行
     window.addEventListener('DOMContentLoaded', () => {
         renderScatterCharts();
         updateStatsLog();
