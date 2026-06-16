@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=1280">
-    <title>盤面境界検知プロファイラー (BEデバッグ強化版)</title>
+    <title>盤面境界検知プロファイラー (セルスケール可視化版)</title>
     <style>
         body { font-family: sans-serif; text-align: center; background-color: #f0f2f5; padding: 20px; margin: 0; }
         .container { max-width: 1200px; margin: 0 auto; background: white; padding: 20px; border-radius: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); display: flex; flex-direction: column; align-items: center; }
@@ -19,7 +19,10 @@
 
         #preview-canvas { max-width: 800px; height: auto; }
         
-        /* 🚀 デバッグエリアを2段並列にするためのレイアウト */
+        /* 📊 スケール・ログ表示エリアの拡張 */
+        .scale-info-area { width: 100%; margin-top: 20px; text-align: left; background: #27ae60; color: white; padding: 15px; border-radius: 5px; box-sizing: border-box; }
+        #scale-box { font-family: 'Courier New', monospace; font-size: 14px; font-weight: bold; line-height: 1.5; }
+
         .results-wrapper { display: flex; gap: 20px; width: 100%; margin-top: 20px; box-sizing: border-box; }
         .result-area { flex: 1; text-align: left; background: #2c3e50; color: #ecf0f1; padding: 15px; border-radius: 5px; box-sizing: border-box; }
         .result-box { font-family: 'Courier New', monospace; font-size: 12px; line-height: 1.6; white-space: pre-wrap; max-height: 450px; overflow-y: auto; background: #1a252f; padding: 10px; border-radius: 4px; border: 1px solid #34495e; }
@@ -50,14 +53,19 @@
         <div id="y-scale-ticks" class="y-scale"></div>
         <canvas id="preview-canvas"></canvas>
     </div>
+
+    <div class="scale-info-area">
+        <span style="font-weight: bold; border-bottom: 1px dashed white; display: block; margin-bottom: 5px;">📐 ① 盤面セルの物理スケール解析データ:</span>
+        <div id="scale-box">画像を選択するとここにセルのピクセル幅・読み取りサイズが表示されます</div>
+    </div>
     
     <div class="results-wrapper">
         <div class="result-area">
-            <span class="header-label">🎨 ① 盤面色判定結果 (シミュレータ同期用)</span>
+            <span class="header-label">🎨 ② 盤面色判定結果 (シミュレータ同期用)</span>
             <div id="result-box-color" class="result-box">画像を選択すると色情報が表示されます</div>
         </div>
         <div class="result-area">
-            <span class="header-label">⚡ ② ボーナスエリア解析ログ (フチの平均RGB値)</span>
+            <span class="header-label">⚡ ③ ボーナスエリア解析ログ (フチの平均RGB値)</span>
             <div id="result-box-be" class="result-box">画像を選択するとBE解析データが表示されます</div>
         </div>
     </div>
@@ -67,6 +75,7 @@
     const fileInput = document.getElementById('file-input');
     const canvas = document.getElementById('preview-canvas');
     const ctx = canvas.getContext('2d');
+    const scaleBox = document.getElementById('scale-box');
     const resultBoxColor = document.getElementById('result-box-color');
     const resultBoxBe = document.getElementById('result-box-be');
     const stageArea = document.getElementById('stage');
@@ -176,6 +185,21 @@
     let beOutputText = "";
     let currentLoopY = 0;
 
+    // 🚀 1マスあたり・スキャンサイズを計算して文字列化
+    const cellWidthPx = uW.toFixed(2);
+    const normalCellHeightPx = (uH * 2).toFixed(2);
+    const nextCellHeightPx = uH.toFixed(2);
+
+    const normalSampleWidth = (uW * 0.5).toFixed(2);
+    const normalSampleHeight = (uH * 2 * 0.5).toFixed(2);
+    const nextSampleWidth = (uW * 0.15).toFixed(2);
+    const nextSampleHeight = (uH * 0.22).toFixed(2);
+
+    let scaleLog = `[盤面全体の確定サイズ]  幅: ${finalWidth} px , 高さ: ${finalHeight} px\n`;
+    scaleLog += `[1マスの物理サイズ]     横幅 (全列共通): ${cellWidthPx} px | 本盤面マスの高さ (ROW1〜6): ${normalCellHeightPx} px | NEXTマスの高さ: ${nextCellHeightPx} px\n`;
+    scaleLog += `[データサンプリング幅]  本盤面中央領域: ${normalSampleWidth} px × ${normalSampleHeight} px | NEXTスキャン領域: ${nextSampleWidth} px × ${nextSampleHeight} px`;
+    scaleBox.innerHTML = scaleLog;
+
     for (let row = 0; row < 7; row++) {
         const rowHeight = yRatios[row] * uH;
         let rowColors = [];
@@ -228,8 +252,6 @@
                     debugBeggG = Math.floor(borderSumG / borderCount);
                     debugBeggB = Math.floor(borderSumB / borderCount);
                     
-                   // 💡 【確定アルゴリズム】黄色い枠線の「白飛びするほどの超高輝度発光」を検知
-                    // 通常の背景（R:140台）やぷよ本体と完全に分離するため、RとGが200以上を閾値にする
                     if (debugBeggR >= 200 && debugBeggG >= 200) {
                         isBonusArea = 1;
                     }
@@ -269,13 +291,11 @@
                 }
             }
             
-            // 左右のデバッグ文字列を生成
             rowColors.push(`${closestColor}(${uniqueInCell.size})`);
             
             if (row === 0) {
                 rowBes.push(`NEXT(判定対象外)`);
             } else {
-                // 🚀 平均値のRGB（R, G, B）とBE判定結果を可視化
                 rowBes.push(`[BE:${isBonusArea}](${debugBeggR},${debugBeggG},${debugBeggB})`);
             }
         }
