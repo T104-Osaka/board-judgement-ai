@@ -3,70 +3,80 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=1280">
-    <title>盤面境界検知プロファイラー (セルスケール可視化版)</title>
+    <title>盤面RGB教師データコレクター＆3面プロファイラー</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         body { font-family: sans-serif; text-align: center; background-color: #f0f2f5; padding: 20px; margin: 0; }
-        .container { max-width: 1200px; margin: 0 auto; background: white; padding: 20px; border-radius: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); display: flex; flex-direction: column; align-items: center; }
+        .container { max-width: 1300px; margin: 0 auto; background: white; padding: 20px; border-radius: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); display: flex; flex-direction: column; align-items: center; }
         
-        .btn { background-color: #3498db; color: white; padding: 15px 30px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 16px; margin: 20px 0; transition: background 0.3s; }
+        .btn { background-color: #3498db; color: white; padding: 12px 24px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 15px; margin: 10px; transition: background 0.3s; }
         .btn:hover { background-color: #2980b9; }
+        .btn-success { background-color: #2ecc71; }
+        .btn-success:hover { background-color: #27ae60; }
+        .btn-danger { background-color: #e74c3c; }
+        .btn-danger:hover { background-color: #c0392b; }
 
-        .stage-area { display: flex; align-items: stretch; margin-top: 10px; border: 1px solid #333; background-color: #fff; }
-        .y-scale { display: flex; flex-direction: column; width: 60px; justify-content: space-between; border-right: 2px solid #333; font-family: monospace; font-size: 12px; text-align: right; background: #eee; }
-        .y-scale div { height: 0; position: relative; }
-        .y-scale div::after { content: ""; position: absolute; right: 0; top: 0; width: 10px; height: 1px; background: #333; }
-        .tick-label { position: absolute; right: 12px; top: -7px; font-weight: bold; }
+        /* 2分割レイアウト */
+        .workspace { display: flex; gap: 25px; width: 100%; margin-top: 15px; align-items: flex-start; }
+        .left-panel { flex: 0 0 450px; display: flex; flex-direction: column; align-items: center; }
+        .right-panel { flex: 1; display: flex; flex-direction: column; gap: 20px; }
 
-        #preview-canvas { max-width: 800px; height: auto; }
+        /* キャンバスとグリッドの重ね合わせインフラ */
+        .canvas-container { position: relative; background: #000; border: 1px solid #333; display: inline-block; }
+        #preview-canvas { display: block; max-width: 400px; height: auto; }
         
-        /* 📊 スケール・ログ表示エリアの拡張 */
-        .scale-info-area { width: 100%; margin-top: 20px; text-align: left; background: #27ae60; color: white; padding: 15px; border-radius: 5px; box-sizing: border-box; }
-        #scale-box { font-family: 'Courier New', monospace; font-size: 14px; font-weight: bold; line-height: 1.5; }
-
-        .results-wrapper { display: flex; gap: 20px; width: 100%; margin-top: 20px; box-sizing: border-box; }
-        .result-area { flex: 1; text-align: left; background: #2c3e50; color: #ecf0f1; padding: 15px; border-radius: 5px; box-sizing: border-box; }
-        .result-box { font-family: 'Courier New', monospace; font-size: 12px; line-height: 1.6; white-space: pre-wrap; max-height: 450px; overflow-y: auto; background: #1a252f; padding: 10px; border-radius: 4px; border: 1px solid #34495e; }
+        /* 物理マス分割UI */
+        .board-grid-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: grid; grid-template-columns: repeat(8, 1fr); grid-template-rows: 1fr repeat(6, 2fr); pointer-events: none; }
+        .cell-ui { border: 1px solid rgba(255,255,255,0.2); position: relative; pointer-events: auto; box-sizing: border-box; }
+        .cell-ui:hover { background-color: rgba(255,255,255,0.15); }
         
-        .header-label { color: #f1c40f; font-weight: bold; margin-bottom: 8px; display: block; font-size: 14px; }
+        /* 右上のセレクトボックス */
+        .color-selector { position: absolute; top: 2px; right: 2px; font-size: 10px; font-weight: bold; padding: 0; margin: 0; background: rgba(0,0,0,0.8); color: white; border: 1px solid #fff; border-radius: 3px; cursor: pointer; z-index: 10; }
         
+        /* グラフエリアの3面グリッド */
+        .charts-container { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; width: 100%; }
+        .chart-card { background: #f8f9fa; padding: 10px; border-radius: 8px; border: 1px solid #ddd; }
+        .chart-card h4 { margin: 0 0 8px 0; font-size: 13px; color: #333; }
+        
+        .log-area { text-align: left; background: #2c3e50; color: #ecf0f1; padding: 12px; border-radius: 5px; box-sizing: border-box; width: 100%; font-family: monospace; font-size: 12px; }
         .drag-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(52, 152, 219, 0.9); z-index: 1000; justify-content: center; align-items: center; pointer-events: none; }
-        .drag-overlay-text { font-size: 30px; color: white; font-weight: bold; }
         body.drag-active .drag-overlay { display: flex; }
     </style>
 </head>
 <body id="drop-target">
 
-<div id="dragOverlay" class="drag-overlay">
-    <div class="drag-overlay-text">ドロップして解析</div>
-</div>
+<div id="dragOverlay" class="drag-overlay"><div style="font-size:30px; color:white; font-weight:bold;">ドロップして解析</div></div>
 
 <div class="container">
-    <h1>🔍 盤面境界検知・画像物理カット版</h1>
-    <p>50%より下を考え、40以下が3連して70以上が出たら、それより上をカット</p>
+    <h2>🧪 RGB教師データ収集＆3面カラープロファイラー</h2>
+    <p style="margin:0 0 10px 0; font-size:13px; color:#666;">画像をドロップ ──► 右上の選択肢で人間が修正確認 ──► 「データを確定して蓄積」を押すことで統計グラフにプロットされます</p>
     
-    <input type="file" id="file-input" accept="image/*" style="display: none;">
-    <button class="btn" onclick="document.getElementById('file-input').click()">写真を選択して解析</button>
-    
-    <div id="detection-msg"></div>
-    
-    <div id="stage" class="stage-area" style="display: none;">
-        <div id="y-scale-ticks" class="y-scale"></div>
-        <canvas id="preview-canvas"></canvas>
+    <div style="display:flex; gap:10px;">
+        <button class="btn" onclick="document.getElementById('file-input').click()">📷 写真を選択</button>
+        <button class="btn btn-success" id="btn-save" onclick="commitTeacherData()" disabled>填入 ──► 💾 データを確定して蓄積</button>
+        <button class="btn btn-danger" onclick="clearDatabase()">🗑️ データを初期化</button>
+        <input type="file" id="file-input" accept="image/*" style="display: none;">
     </div>
 
-    <div class="scale-info-area">
-        <span style="font-weight: bold; border-bottom: 1px dashed white; display: block; margin-bottom: 5px;">📐 ① 盤面セルの物理スケール解析データ:</span>
-        <div id="scale-box">画像を選択するとここにセルのピクセル幅・読み取りサイズが表示されます</div>
-    </div>
-    
-    <div class="results-wrapper">
-        <div class="result-area">
-            <span class="header-label">🎨 ② 盤面色判定結果 (シミュレータ同期用)</span>
-            <div id="result-box-color" class="result-box">画像を選択すると色情報が表示されます</div>
+    <div class="workspace">
+        <div class="left-panel">
+            <div class="canvas-container" id="stage" style="display:none;">
+                <canvas id="preview-canvas"></canvas>
+                <div id="grid-overlay" class="board-grid-overlay"></div>
+            </div>
+            <div id="detection-msg" style="margin-top:10px; font-weight:bold; color:#2c3e50;"></div>
         </div>
-        <div class="result-area">
-            <span class="header-label">⚡ ③ ボーナスエリア解析ログ (フチの平均RGB値)</span>
-            <div id="result-box-be" class="result-box">画像を選択するとBE解析データが表示されます</div>
+
+        <div class="right-panel">
+            <div class="charts-container">
+                <div class="chart-card"><h4>📈 R - G 空間散布図</h4><canvas id="chart-rg"></canvas></div>
+                <div class="chart-card"><h4>📈 G - B 空間散布図</h4><canvas id="chart-gb"></canvas></div>
+                <div class="chart-card"><h4>📈 R - B 空間散布図</h4><canvas id="chart-rb"></canvas></div>
+            </div>
+            <div class="log-area">
+                <strong>📊 蓄積データ統計カウント:</strong>
+                <div id="stats-log">データ未蓄積 (0件)</div>
+            </div>
         </div>
     </div>
 </div>
@@ -75,255 +85,297 @@
     const fileInput = document.getElementById('file-input');
     const canvas = document.getElementById('preview-canvas');
     const ctx = canvas.getContext('2d');
-    const scaleBox = document.getElementById('scale-box');
-    const resultBoxColor = document.getElementById('result-box-color');
-    const resultBoxBe = document.getElementById('result-box-be');
-    const stageArea = document.getElementById('stage');
-    const yScaleTicks = document.getElementById('y-scale-ticks');
+    const gridOverlay = document.getElementById('grid-overlay');
+    const btnSave = document.getElementById('btn-save');
+    const statsLog = document.getElementById('stats-log');
+    const stage = document.getElementById('stage');
 
-    fileInput.addEventListener('change', (e) => {
-        if (e.target.files.length > 0) handleImage(e.target.files[0]);
-    });
+    // 色定義のマップ
+    const LABEL_MAP = { "0": "ハート", "1": "赤", "2": "青", "3": "緑", "4": "黄", "5": "紫", "不明": "不明" };
+    const CHART_COLORS = { "0": "#ff9ff3", "1": "#ff5252", "2": "#54a0ff", "3": "#5f27cd", "4": "#feca57", "5": "#a55eea" };
+
+    // 仮データ保持用バッファ (56マス分)
+    let temporaryCellBuffer = [];
+    // 永続データベースバッファ (ローカルストレージと同期)
+    let teacherDatabase = JSON.parse(localStorage.getItem('puyo_rgb_teacher_db')) || [];
+
+    // Chart.js インスタンス保持用
+    let charts = { rg: null, gb: null, rb: null };
+
+    fileInput.addEventListener('change', (e) => { if (e.target.files.length > 0) handleImage(e.target.files[0]); });
 
     function handleImage(file) {
         if (!file || !file.type.startsWith('image/')) return;
         const reader = new FileReader();
         reader.onload = function(event) {
             const img = new Image();
-            img.onload = function() { analyzeAndCut(img); };
+            img.onload = function() { analyzeAndSetupUI(img); };
             img.src = event.target.result;
         };
         reader.readAsDataURL(file);
     }
 
-    function generateYScale(height) {
-        yScaleTicks.innerHTML = '';
-        for (let i = 0; i <= 20; i++) {
-            const div = document.createElement('div');
-            const label = document.createElement('span');
-            label.className = 'tick-label';
-            label.innerText = `${i * 5}%`;
-            div.appendChild(label);
-            yScaleTicks.appendChild(div);
-        }
-    }
+    function analyzeAndSetupUI(img) {
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = img.width; tempCanvas.height = img.height;
+        const tempCtx = tempCanvas.getContext('2d', {willReadFrequently: true});
+        tempCtx.drawImage(img, 0, 0);
 
-  function analyzeAndCut(img) {
-    const tempCanvas = document.createElement('canvas');
-    tempCanvas.width = img.width;
-    tempCanvas.height = img.height;
-    const tempCtx = tempCanvas.getContext('2d', {willReadFrequently: true});
-    tempCtx.drawImage(img, 0, 0);
-
-    const imageData = tempCtx.getImageData(0, 0, img.width, img.height);
-    const data = imageData.data;
-    const width = img.width;
-    const height = img.height;
-    
-    // --- 1. 垂直・水平の境界検知 ---
-    let allRowCounts = [];
-    for (let y = 0; y < height; y++) {
-        let unique = new Set();
-        for (let x = 0; x < width; x++) {
-            const i = (y * width + x) * 4;
-            unique.add((data[i] << 16) | (data[i+1] << 8) | (data[i+2]));
-        }
-        allRowCounts.push(unique.size);
-    }
-
-    let topCutY = 0, bottomCutY = height, foundPlateau = false;
-    let lowCountRows = 0;
-    const scanStartY = Math.floor(height * 0.5), limitY = Math.floor(height * 0.8); 
-    for (let y = scanStartY; y < height; y++) {
-        if (!foundPlateau) {
-            if (allRowCounts[y] <= 40) { lowCountRows++; if (lowCountRows >= 3) foundPlateau = true; }
-            else lowCountRows = 0;
-        } else if (topCutY === 0) {
-            if (allRowCounts[y] >= 70) topCutY = y;
-        }
-        if (y >= limitY && allRowCounts[y] <= 40) { bottomCutY = y; break; }
-    }
-
-    const finalHeight = bottomCutY - topCutY;
-    const aTop = Math.floor(topCutY + finalHeight * 0.25), aBottom = Math.floor(bottomCutY - finalHeight * 0.25);
-    let colCounts = [];
-    for (let x = 0; x < width; x++) {
-        let u = new Set();
-        for (let y = aTop; y < aBottom; y++) {
-            const i = (y * width + x) * 4;
-            u.add((data[i] << 16) | (data[i+1] << 8) | (data[i+2]));
-        }
-        colCounts.push(u.size);
-    }
-    let leftX = 0, fGap = false, lLow = 0;
-    for (let x = 0; x < width; x++) {
-        if (!fGap) { if (colCounts[x] <= 10) { lLow++; if (lLow >= 3) fGap = true; } else lLow = 0; }
-        else { if (colCounts[x] >= 40) { leftX = x; break; } }
-    }
-    let rightX = width, rLow = 0;
-    for (let x = Math.floor(width * 0.7); x < width; x++) {
-        if (colCounts[x] <= 10) { rLow++; if (rLow >= 3) { rightX = x - 1; break; } } else rLow = 0;
-    }
-
-    const finalWidth = rightX - leftX;
-    canvas.width = finalWidth; canvas.height = finalHeight;
-    ctx.drawImage(img, leftX, topCutY, finalWidth, finalHeight, 0, 0, finalWidth, finalHeight);
-
-    // --- 2. 色判定リファレンス ---
-    const COLOR_PALETTE = {
-        "赤": { r: 210, g: 50,  b: 50 },
-        "青": { r: 50,  g: 100, b: 210 },
-        "緑": { r: 50,  g: 160, b: 50 },
-        "黄": { r: 220, g: 200, b: 50 },
-        "紫": { r: 150, g: 50,  b: 180 }
-    };
-
-    const yRatios = [1, 2, 2, 2, 2, 2, 2];
-    const uH = finalHeight / 13, uW = finalWidth / 8;
-    
-    let colorOutputText = "";
-    let beOutputText = "";
-    let currentLoopY = 0;
-
-    // 🚀 1マスあたり・スキャンサイズを計算して文字列化
-    const cellWidthPx = uW.toFixed(2);
-    const normalCellHeightPx = (uH * 2).toFixed(2);
-    const nextCellHeightPx = uH.toFixed(2);
-
-    const normalSampleWidth = (uW * 0.5).toFixed(2);
-    const normalSampleHeight = (uH * 2 * 0.5).toFixed(2);
-    const nextSampleWidth = (uW * 0.15).toFixed(2);
-    const nextSampleHeight = (uH * 0.22).toFixed(2);
-
-    let scaleLog = `[盤面全体の確定サイズ]  幅: ${finalWidth} px , 高さ: ${finalHeight} px\n`;
-    scaleLog += `[1マスの物理サイズ]     横幅 (全列共通): ${cellWidthPx} px | 本盤面マスの高さ (ROW1〜6): ${normalCellHeightPx} px | NEXTマスの高さ: ${nextCellHeightPx} px\n`;
-    scaleLog += `[データサンプリング幅]  本盤面中央領域: ${normalSampleWidth} px × ${normalSampleHeight} px | NEXTスキャン領域: ${nextSampleWidth} px × ${nextSampleHeight} px`;
-    scaleBox.innerHTML = scaleLog;
-
-    for (let row = 0; row < 7; row++) {
-        const rowHeight = yRatios[row] * uH;
-        let rowColors = [];
-        let rowBes = [];
-
-        for (let col = 0; col < 8; col++) {
-            let sX, eX, sY, eY;
-            const cellLeft = leftX + (col * uW);
-            const cellRight = leftX + ((col + 1) * uW);
-            const cellTop = topCutY + currentLoopY;
-            const cellBottom = topCutY + currentLoopY + rowHeight;
-
-            if (row === 0) {
-                sX = cellLeft + (uW * 0.33); eX = cellLeft + (uW * 0.48);
-                sY = cellTop + (rowHeight * 0.33); eY = cellTop + (rowHeight * 0.55);
-            } else {
-                sX = cellLeft + (uW * 0.25); eX = cellLeft + (uW * 0.75);
-                sY = cellTop + (rowHeight * 0.25); eY = cellTop + (rowHeight * 0.75);
+        const imageData = tempCtx.getImageData(0, 0, img.width, img.height);
+        const data = imageData.data;
+        const width = img.width; const height = img.height;
+        
+        // --- 垂直・水平境界検知コアロジック ---
+        let allRowCounts = [];
+        for (let y = 0; y < height; y++) {
+            let unique = new Set();
+            for (let x = 0; x < width; x++) {
+                const i = (y * width + x) * 4;
+                unique.add((data[i] << 16) | (data[i+1] << 8) | (data[i+2]));
             }
+            allRowCounts.push(unique.size);
+        }
 
-            // --- 💡 🚀 強化版ボーナスエリア（半透明黄色枠）の検知ロジック ---
-            let isBonusArea = 0;
-            let debugBeggR = 0, debugBeggG = 0, debugBeggB = 0;
-            
-            if (row > 0) { 
-                let borderSumR = 0, borderSumG = 0, borderSumB = 0, borderCount = 0;
-                const offsetIn = 4; // マスの内側フチ4pxの地点を狙う
-                
-                const samplePoints = [
-                    { x: cellLeft + offsetIn,  y: cellTop + offsetIn },
-                    { x: cellRight - offsetIn, y: cellTop + offsetIn },
-                    { x: cellLeft + offsetIn,  y: cellBottom - offsetIn },
-                    { x: cellRight - offsetIn, y: cellBottom - offsetIn }
-                ];
+        let topCutY = 0, bottomCutY = height, foundPlateau = false, lowCountRows = 0;
+        const scanStartY = Math.floor(height * 0.5), limitY = Math.floor(height * 0.8); 
+        for (let y = scanStartY; y < height; y++) {
+            if (!foundPlateau) {
+                if (allRowCounts[y] <= 40) { lowCountRows++; if (lowCountRows >= 3) foundPlateau = true; }
+                else lowCountRows = 0;
+            } else if (topCutY === 0) { if (allRowCounts[y] >= 70) topCutY = y; }
+            if (y >= limitY && allRowCounts[y] <= 40) { bottomCutY = y; break; }
+        }
 
-                samplePoints.forEach(pt => {
-                    const px = Math.floor(pt.x);
-                    const py = Math.floor(pt.y);
-                    if (px >= 0 && px < width && py >= 0 && py < height) {
-                        const idx = (py * width + px) * 4;
-                        borderSumR += data[idx];
-                        borderSumG += data[idx+1];
-                        borderSumB += data[idx+2];
-                        borderCount++;
+        const finalHeight = bottomCutY - topCutY;
+        const aTop = Math.floor(topCutY + finalHeight * 0.25), aBottom = Math.floor(bottomCutY - finalHeight * 0.25);
+        let colCounts = [];
+        for (let x = 0; x < width; x++) {
+            let u = new Set();
+            for (let y = aTop; y < aBottom; y++) {
+                const i = (y * width + x) * 4; u.add((data[i] << 16) | (data[i+1] << 8) | (data[i+2]));
+            }
+            colCounts.push(u.size);
+        }
+        let leftX = 0, fGap = false, lLow = 0;
+        for (let x = 0; x < width; x++) {
+            if (!fGap) { if (colCounts[x] <= 10) { lLow++; if (lLow >= 3) fGap = true; } else lLow = 0; }
+            else { if (colCounts[x] >= 40) { leftX = x; break; } }
+        }
+        let rightX = width, rLow = 0;
+        for (let x = Math.floor(width * 0.7); x < width; x++) {
+            if (colCounts[x] <= 10) { rLow++; if (rLow >= 3) { rightX = x - 1; break; } } else rLow = 0;
+        }
+
+        const finalWidth = rightX - leftX;
+        canvas.width = finalWidth; canvas.height = finalHeight;
+        ctx.drawImage(img, leftX, topCutY, finalWidth, finalHeight, 0, 0, finalWidth, finalHeight);
+
+        // --- 仮データ初期化とサンプリング処理 ---
+        const COLOR_PALETTE = {
+            "1": { r: 210, g: 50,  b: 50 },  "2": { r: 50,  g: 100, b: 210 },
+            "3": { r: 50,  g: 160, b: 50 },  "4": { r: 220, g: 200, b: 50 },
+            "5": { r: 150, g: 50,  b: 180 }
+        };
+
+        const yRatios = [1, 2, 2, 2, 2, 2, 2];
+        const uH = finalHeight / 13, uW = finalWidth / 8;
+        let currentLoopY = 0;
+        temporaryCellBuffer = [];
+        gridOverlay.innerHTML = '';
+
+        for (let row = 0; row < 7; row++) {
+            const rowHeight = yRatios[row] * uH;
+            for (let col = 0; col < 8; col++) {
+                let sX = leftX + (col * uW) + (uW * 0.25);
+                let eX = leftX + (col * uW) + (uW * 0.75);
+                let sY = topCutY + currentLoopY + (rowHeight * 0.25);
+                let eY = topCutY + currentLoopY + (rowHeight * 0.75);
+
+                if (row === 0) {
+                    sX = leftX + (col * uW) + (uW * 0.33); eX = leftX + (col * uW) + (uW * 0.48);
+                    sY = topCutY + currentLoopY + (rowHeight * 0.33); eY = topCutY + currentLoopY + (rowHeight * 0.55);
+                }
+
+                // 1. 平均値(RGB)の算出ループ（中央50%）
+                let sumR = 0, sumG = 0, sumB = 0, count = 0;
+                let uniqueInCell = new Set();
+
+                for (let py = Math.floor(sY); py < Math.floor(eY); py++) {
+                    for (let px = Math.floor(sX); px < Math.floor(eX); px++) {
+                        const i = (py * width + px) * 4;
+                        const r = data[i], g = data[i+1], b = data[i+2];
+                        if (r > 240 && g > 240 && b > 240) continue;
+                        sumR += r; sumG += g; sumB += b; count++;
                     }
+                }
+
+                // 2. ユニーク色数の算出ループ（中央50%の上半分）
+                const colorCountStartY = Math.floor(sY);
+                const colorCountEndY   = Math.floor(sY + (eY - sY) * 0.5);
+                for (let py = colorCountStartY; py < colorCountEndY; py++) {
+                    for (let px = Math.floor(sX); px < Math.floor(eX); px++) {
+                        const i = (py * width + px) * 4;
+                        uniqueInCell.add((data[i] << 16) | (data[i+1] << 8) | data[i+2]);
+                    }
+                }
+
+                if (count === 0) {
+                    const mi = (Math.floor((sY+eY)/2)*width + Math.floor((sX+eX)/2))*4;
+                    sumR = data[mi]; sumG = data[mi+1]; sumB = data[mi+2]; count = 1;
+                }
+
+                const avg = { r: Math.round(sumR / count), g: Math.round(sumG / count), b: Math.round(sumB / count) };
+                let detectedId = "不明";
+
+                if (row !== 0 && uniqueInCell.size <= 300) {
+                    detectedId = (avg.g >= avg.r * 0.86) ? "4" : "0"; 
+                } else if (row !== 0) {
+                    let minDest = Infinity;
+                    for (let id in COLOR_PALETTE) {
+                        const t = COLOR_PALETTE[id];
+                        const d = Math.sqrt(Math.pow(avg.r-t.r,2)+Math.pow(avg.g-t.g,2)+Math.pow(avg.b-t.b,2));
+                        if (d < minDest) { minDest = d; detectedId = id; }
+                    }
+                }
+
+                // バッファに仮データとして格納
+                const cellIndex = row * 8 + col;
+                temporaryCellBuffer.push({ index: cellIndex, row: row, col: col, r: avg.r, g: avg.g, b: avg.b, label: detectedId });
+
+                // 💡 マス目を縦横2等分し、その右上に選択式メニューを物理配置するUI構築
+                const cellUi = document.createElement('div');
+                cellUi.className = 'cell-ui';
+                
+                const select = document.createElement('select');
+                select.className = 'color-selector';
+                select.id = `select-cell-${cellIndex}`;
+                
+                // オプション要素の生成
+                for (let val in LABEL_MAP) {
+                    const opt = document.createElement('option');
+                    opt.value = val; opt.innerText = LABEL_MAP[val];
+                    if (val === detectedId) opt.selected = true;
+                    select.appendChild(opt);
+                }
+
+                // 人間がドロップダウンを変更した時に、リアルタイムで仮データを修正保存する機構
+                select.addEventListener('change', (e) => {
+                    temporaryCellBuffer[cellIndex].label = e.target.value;
                 });
 
-                if (borderCount > 0) {
-                    debugBeggR = Math.floor(borderSumR / borderCount);
-                    debugBeggG = Math.floor(borderSumG / borderCount);
-                    debugBeggB = Math.floor(borderSumB / borderCount);
-                    
-                    if (debugBeggR >= 200 && debugBeggG >= 200) {
-                        isBonusArea = 1;
-                    }
-                }
+                cellUi.appendChild(select);
+                gridOverlay.appendChild(cellUi);
             }
-
-            // --- 通常のぷよ色判定 ---
-            let sumR = 0, sumG = 0, sumB = 0, count = 0;
-            let uniqueInCell = new Set();
-
-            for (let py = Math.floor(sY); py < Math.floor(eY); py++) {
-                for (let px = Math.floor(sX); px < Math.floor(eX); px++) {
-                    const i = (py * width + px) * 4;
-                    const r = data[i], g = data[i+1], b = data[i+2];
-                    uniqueInCell.add((r << 16) | (g << 8) | b);
-
-                    if (r > 240 && g > 240 && b > 240) continue;
-                    sumR += r; sumG += g; sumB += b; count++;
-                }
-            }
-            if (count === 0) {
-                const mi = (Math.floor((sY+eY)/2)*width + Math.floor((sX+eX)/2))*4;
-                sumR = data[mi]; sumG = data[mi+1]; sumB = data[mi+2]; count = 1;
-            }
-            const avg = { r: sumR / count, g: sumG / count, b: sumB / count };
-            let closestColor = "不明";
-
-            if (row !== 0 && uniqueInCell.size <= 300) {
-                if (avg.g >= avg.r * 0.86) { closestColor = "黄"; } 
-                else { closestColor = "ピンク"; }
-            } else {
-                let minDest = Infinity;
-                for (let colorName in COLOR_PALETTE) {
-                    const t = COLOR_PALETTE[colorName];
-                    const d = Math.sqrt(Math.pow(avg.r-t.r,2)+Math.pow(avg.g-t.g,2)+Math.pow(avg.b-t.b,2));
-                    if (d < minDest) { minDest = d; closestColor = colorName; }
-                }
-            }
-            
-            rowColors.push(`${closestColor}(${uniqueInCell.size})`);
-            
-            if (row === 0) {
-                rowBes.push(`NEXT(判定対象外)`);
-            } else {
-                rowBes.push(`[BE:${isBonusArea}](${debugBeggR},${debugBeggG},${debugBeggB})`);
-            }
+            currentLoopY += rowHeight;
         }
-        
-        const label = row === 0 ? "NEXT " : `ROW${row} `;
-        colorOutputText += `${label}: [ ${rowColors.join(", ")} ]\n`;
-        beOutputText += `${label}: [ ${rowBes.join(" | ")} ]\n`;
-        
-        currentLoopY += rowHeight;
+
+        stage.style.display = 'inline-block';
+        btnSave.disabled = false;
+        document.getElementById('detection-msg').innerText = "⌛ 人間の目による答えの確認・修正待ち...";
     }
 
-    stageArea.style.display = 'flex'; generateYScale(finalHeight);
-    resultBoxColor.innerHTML = colorOutputText;
-    resultBoxBe.innerHTML = beOutputText;
-}
+    // 🚀 人間が「データを確定して蓄積」ボタンを押したときの確定処理
+    function commitTeacherData() {
+        let addedCount = 0;
+        temporaryCellBuffer.forEach(cell => {
+            // NEXT(row 0) および 人間が「不明」のままにしたマスは統計ノイズになるため除外
+            if (cell.row > 0 && cell.label !== "不明") {
+                teacherDatabase.push({ r: cell.r, g: cell.g, b: cell.b, label: cell.label });
+                addedCount++;
+            }
+        });
 
-    // ドラッグ&ドロップ
-    document.addEventListener('dragover', (e) => {
-        e.preventDefault(); document.body.classList.add('drag-active');
-    });
-    document.addEventListener('dragleave', (e) => {
-        if (e.relatedTarget === null || !document.body.contains(e.relatedTarget)) {
-            document.body.classList.remove('drag-active');
+        // 永続ローカルストレージへのセーブ
+        localStorage.setItem('puyo_rgb_teacher_db', JSON.stringify(teacherDatabase));
+        
+        document.getElementById('detection-msg').innerText = `✅ 成功：本番面から ${addedCount} 個のRGB教師データを蓄積しました！`;
+        btnSave.disabled = true;
+        
+        // グラフの再描画更新
+        renderScatterCharts();
+        updateStatsLog();
+    }
+
+    // 🗑️ データベースの初期化
+    function clearDatabase() {
+        if (confirm("これまでに蓄積したすべてのRGB統計データを削除しますか？")) {
+            teacherDatabase = [];
+            localStorage.removeItem('puyo_rgb_teacher_db');
+            renderScatterCharts();
+            updateStatsLog();
+            document.getElementById('detection-msg').innerText = "🗑️ 統計データをきれいに初期化しました。";
         }
+    }
+
+    function updateStatsLog() {
+        let counts = { "0": 0, "1": 0, "2": 0, "3": 0, "4": 0, "5": 0 };
+        teacherDatabase.forEach(d => { if (counts[d.label] !== undefined) counts[d.label]++; });
+        
+        let logText = `総データ数: ${teacherDatabase.length} 件\n`;
+        logText += ` [ハート(0)]: ${counts["0"]}件 | [赤(1)]: ${counts["1"]}件 | [青(2)]: ${counts["2"]}件 | [緑(3)]: ${counts["3"]}件 | [黄(4)]: ${counts["4"]}件 | [紫(5)]: ${counts["5"]}件`;
+        statsLog.innerText = logText;
+    }
+
+    // 📈 3つの2次元散布図 (R-G, G-B, R-B) を一括生成・プロットする描画関数
+    function renderScatterCharts() {
+        const configKeys = [
+            { id: 'chart-rg', xKey: 'r', yKey: 'g', xLabel: 'R (赤成分)', yLabel: 'G (緑成分)' },
+            { id: 'chart-gb', xKey: 'g', yKey: 'b', xLabel: 'G (緑成分)', yLabel: 'B (青成分)' },
+            { id: 'chart-rb', xKey: 'r', yKey: 'b', xLabel: 'R (赤成分)', yLabel: 'B (青成分)' }
+        ];
+
+        configKeys.forEach(cfg => {
+            // 色IDごとにChart.jsが要求する形式のデータセットに綺麗に仕分ける
+            const datasets = Object.keys(CHART_COLORS).map(labelId => {
+                const filteredPoints = teacherDatabase
+                    .filter(item => item.label === labelId)
+                    .map(item => ({ x: item[cfg.xKey], y: item[cfg.yKey] }));
+
+                return {
+                    label: LABEL_MAP[labelId],
+                    data: filteredPoints,
+                    backgroundColor: CHART_COLORS[labelId],
+                    pointRadius: 5,
+                    pointHoverRadius: 7
+                };
+            });
+
+            // 既存のグラフオブジェクトがあれば、工学的なメモリリークを防ぐため破棄
+            const chartKey = cfg.id.split('-')[1];
+            if (charts[chartKey]) { charts[chartKey].destroy(); }
+
+            // 描画処理
+            const canvasCtx = document.getElementById(cfg.id).getContext('2d');
+            charts[chartKey] = new Chart(canvasCtx, {
+                type: 'scatter',
+                data: { datasets: datasets },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: { min: 0, max: 255, title: { display: true, text: cfg.xLabel, font: { weight: 'bold' } } },
+                        y: { min: 0, max: 255, title: { display: true, text: cfg.yLabel, font: { weight: 'bold' } } }
+                    },
+                    plugins: { legend: { labels: { boxWidth: 10, font: { size: 10 } } } }
+                }
+            });
+        });
+    }
+
+    // ドラッグ＆ドロップ制御
+    document.addEventListener('dragover', (e) => { e.preventDefault(); document.body.classList.add('drag-active'); });
+    document.addEventListener('dragleave', (e) => {
+        if (e.relatedTarget === null || !document.body.contains(e.relatedTarget)) document.body.classList.remove('drag-active');
     });
     document.addEventListener('drop', (e) => {
         e.preventDefault(); document.body.classList.remove('drag-active');
         if (e.dataTransfer.files.length > 0) handleImage(e.dataTransfer.files[0]);
+    });
+
+    // 起動時にグラフと統計ログの初期レンダリングを実行
+    window.addEventListener('DOMContentLoaded', () => {
+        renderScatterCharts();
+        updateStatsLog();
     });
 </script>
 
