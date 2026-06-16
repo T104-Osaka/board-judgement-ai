@@ -277,7 +277,9 @@
     function commitTeacherData() {
         let addedCount = 0;
         temporaryCellBuffer.forEach(cell => {
-            if (cell.row > 0 && cell.label !== "不明") {
+            // 💡 工学的なデータクレンジング：
+            // cell.row === 0 (NEXT) を完全に弾き、人間が手動で「不明」のままにしたマスも除外する
+            if (cell.row > 0 && cell.label !== "不明" && cell.label !== "NEXT(判定対象外)") {
                 teacherDatabase.push({ r: cell.r, g: cell.g, b: cell.b, label: cell.label });
                 addedCount++;
             }
