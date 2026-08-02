@@ -93,7 +93,6 @@
     const statsLog = document.getElementById('stats-log');
     const stage = document.getElementById('stage');
 
-    // 色定義のマップ（0番を「ハート」として明確に分離）
     const LABEL_MAP = { "0": "ハート", "1": "赤", "2": "青", "3": "緑", "4": "黄", "5": "紫", "不明": "不明" };
     const CHART_COLORS = { "0": "#ff9ff3", "1": "#ff3e3e", "2": "#4da3ff", "3": "#3eff3e", "4": "#ffeb3e", "5": "#ae81ff" };
 
@@ -101,11 +100,10 @@
     let teacherDatabase = JSON.parse(localStorage.getItem('puyo_rgb_teacher_db')) || [];
     let charts = { rg: null, gb: null, rb: null };
 
-    // 動画処理用のグローバル変数
     let currentVideoFile = null;
     let videoElement = null;
+    let detectedCropCoords = null; // 🚀 動画全体で共有する切り抜き座標
 
-    // ファイル選択（画像・動画の両対応）
     fileInput.addEventListener('change', (e) => { 
         if (e.target.files.length > 0) {
             const file = e.target.files[0];
@@ -118,7 +116,6 @@
         } 
     });
 
-    // 単体画像の読み込み
     function handleImage(file) {
         if (!file || !file.type.startsWith('image/')) return;
         const reader = new FileReader();
@@ -130,24 +127,43 @@
         reader.readAsDataURL(file);
     }
 
-    // 動画ファイルの読み込みと先頭（最初の1フレーム）の抽出
-    function handleVideo(file) {
+    // 🚀 動画の確実な非同期ロードとフレームキャプチャ処理
+    async function handleVideo(file) {
         currentVideoFile = file;
-        const videoUrl = URL.createObjectURL(file);
+        document.getElementById('detection-msg').innerText = "⏳ 動画を読み込み中...";
+
+        if (videoElement) {
+            URL.revokeObjectURL(videoElement.src);
+        }
+
         videoElement = document.createElement('video');
-        videoElement.src = videoUrl;
+        videoElement.src = URL.createObjectURL(file);
         videoElement.muted = true;
         videoElement.playsInline = true;
 
-        videoElement.onloadeddata = () => {
-            // 最初の0.1秒目にシークして初期フレームを表示
-            videoElement.currentTime = 0.1;
-        };
+        // 動画のメタデータロードを待機
+        await new Promise((resolve) => {
+            videoElement.onloadedmetadata = () => resolve();
+        });
 
-        videoElement.onseeked = () => {
-            // 最初の1フレーム目を解析してUIを作る
-            analyzeAndSetupUI(videoElement);
-        };
+        // 0.5秒地点へ移動して確実にフレームを描画させる
+        await seekVideoTo(videoElement, 0.5);
+
+        // 1フレーム目を解析
+        analyzeAndSetupUI(videoElement);
+    }
+
+    // 指定時間への安全なシーク処理
+    function seekVideoTo(video, time) {
+        return new Promise((resolve) => {
+            const onSeeked = () => {
+                video.removeEventListener('seeked', onSeeked);
+                // 描画安定のための微小ウェイト
+                setTimeout(resolve, 50);
+            };
+            video.addEventListener('seeked', onSeeked);
+            video.currentTime = Math.min(time, video.duration);
+        });
     }
 
     function analyzeAndSetupUI(imgOrVideo) {
@@ -165,7 +181,6 @@
         const width = imgWidth;
         const height = imgHeight;
         
-        // --- 垂直・水平境界検知 ---
         let allRowCounts = [];
         for (let y = 0; y < height; y++) {
             let unique = new Set();
@@ -207,6 +222,10 @@
         }
 
         const finalWidth = rightX - leftX;
+
+        // 🚀 抽出した切り抜き座標を保存（動画の全フレームで共有）
+        detectedCropCoords = { leftX, topCutY, finalWidth, finalHeight, rawWidth: width, rawHeight: height };
+
         canvas.width = finalWidth; canvas.height = finalHeight;
         ctx.drawImage(imgOrVideo, leftX, topCutY, finalWidth, finalHeight, 0, 0, finalWidth, finalHeight);
 
@@ -308,57 +327,57 @@
         document.getElementById('detection-msg').innerText = "⌛ 人間の目による答えの確認・修正待ち...";
     }
 
-    // データ確定（動画・画像の分岐）
+    // 🚀 動画全体の安全なフレーム抽出処理
     async function commitTeacherData() {
-        if (!currentVideoFile || !videoElement) {
+        if (!currentVideoFile || !videoElement || !detectedCropCoords) {
             commitSingleImageData();
             return;
         }
 
         btnSave.disabled = true;
-        document.getElementById('detection-msg').innerText = "⏳ 動画の全フレームからRGBデータを抽出中...";
+        const msg = document.getElementById('detection-msg');
 
-        const fps = 5; // 秒間コマ数
+        const fps = 3; // 処理の確実性を上げるため秒間3コマに設定
         const duration = videoElement.duration;
         const step = 1 / fps;
         let addedCount = 0;
 
         const confirmedLabels = temporaryCellBuffer.map(cell => cell.label);
 
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = detectedCropCoords.rawWidth;
+        tempCanvas.height = detectedCropCoords.rawHeight;
+        const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
+
         for (let t = 0; t < duration; t += step) {
-            await new Promise((resolve) => {
-                videoElement.currentTime = t;
-                videoElement.onseeked = () => {
-                    const tempCanvas = document.createElement('canvas');
-                    tempCanvas.width = videoElement.videoWidth;
-                    tempCanvas.height = videoElement.videoHeight;
-                    const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
-                    tempCtx.drawImage(videoElement, 0, 0);
+            msg.innerText = `⏳ 解析中: ${Math.round((t / duration) * 100)}% 完了 (${addedCount}件 抽出)`;
 
-                    const imageData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
-                    const data = imageData.data;
+            // 確実に描画が終わるまで待機
+            await seekVideoTo(videoElement, t);
 
-                    temporaryCellBuffer.forEach((cell, idx) => {
-                        const targetLabel = confirmedLabels[idx];
-                        if (cell.row > 0 && targetLabel !== "不明" && targetLabel !== "NEXT(判定対象外)") {
-                            const rgb = extractCellRGB(data, tempCanvas.width, cell.row, cell.col);
-                            teacherDatabase.push({ r: rgb.r, g: rgb.g, b: rgb.b, label: targetLabel });
-                            addedCount++;
-                        }
-                    });
-                    resolve();
-                };
+            tempCtx.drawImage(videoElement, 0, 0);
+            const imageData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+            const data = imageData.data;
+
+            temporaryCellBuffer.forEach((cell, idx) => {
+                const targetLabel = confirmedLabels[idx];
+                if (cell.row > 0 && targetLabel !== "不明" && targetLabel !== "NEXT(判定対象外)") {
+                    const rgb = extractCellRGBFromVideo(data, detectedCropCoords, cell.row, cell.col);
+                    if (rgb) {
+                        teacherDatabase.push({ r: rgb.r, g: rgb.g, b: rgb.b, label: targetLabel });
+                        addedCount++;
+                    }
+                }
             });
         }
 
         localStorage.setItem('puyo_rgb_teacher_db', JSON.stringify(teacherDatabase));
-        document.getElementById('detection-msg').innerText = `✅ 成功：動画全体から ${addedCount} 個のRGB教師データを蓄積しました！`;
+        msg.innerText = `✅ 成功：動画全体から ${addedCount} 個のRGB教師データを蓄積しました！`;
         
         renderScatterCharts();
         updateStatsLog();
     }
 
-    // 単体画像の蓄積処理
     function commitSingleImageData() {
         let addedCount = 0;
         temporaryCellBuffer.forEach(cell => {
@@ -374,30 +393,35 @@
         updateStatsLog();
     }
 
-    // 動画フレームの指定セルからRGB平均を取得する関数
-    function extractCellRGB(data, width, row, col) {
-        const uH = canvas.height / 13;
-        const uW = canvas.width / 8;
+    // 🚀 動画フレーム専用の安定した座標計算関数
+    function extractCellRGBFromVideo(data, crop, row, col) {
+        const width = crop.rawWidth;
+        const uH = crop.finalHeight / 13;
+        const uW = crop.finalWidth / 8;
         const yRatios = [1, 2, 2, 2, 2, 2, 2];
+        
         let currentLoopY = 0;
         for (let r = 0; r < row; r++) currentLoopY += yRatios[r] * uH;
         const rowHeight = yRatios[row] * uH;
 
-        const sX = (col * uW) + (uW * 0.25);
-        const eX = (col * uW) + (uW * 0.75);
-        const sY = currentLoopY + (rowHeight * 0.25);
-        const eY = currentLoopY + (rowHeight * 0.75);
+        const cellLeft = crop.leftX + (col * uW);
+        const cellTop = crop.topCutY + currentLoopY;
+
+        const sX = cellLeft + (uW * 0.25);
+        const eX = cellLeft + (uW * 0.75);
+        const sY = cellTop + (rowHeight * 0.25);
+        const eY = cellTop + (rowHeight * 0.75);
 
         let sumR = 0, sumG = 0, sumB = 0, count = 0;
         for (let py = Math.floor(sY); py < Math.floor(eY); py++) {
             for (let px = Math.floor(sX); px < Math.floor(eX); px++) {
                 const i = (py * width + px) * 4;
                 const r = data[i], g = data[i+1], b = data[i+2];
-                if (r > 240 && g > 240 && b > 240) continue;
+                if (r > 240 && g > 240 && b > 240) continue; // テカリ除外
                 sumR += r; sumG += g; sumB += b; count++;
             }
         }
-        if (count === 0) return { r: 0, g: 0, b: 0 };
+        if (count === 0) return null;
         return { r: Math.round(sumR / count), g: Math.round(sumG / count), b: Math.round(sumB / count) };
     }
 
@@ -463,7 +487,6 @@
         });
     }
 
-    // ドラッグ＆ドロップ対応（画像・動画対応）
     document.addEventListener('dragover', (e) => { e.preventDefault(); document.body.classList.add('drag-active'); });
     document.addEventListener('dragleave', (e) => {
         if (e.relatedTarget === null || !document.body.contains(e.relatedTarget)) document.body.classList.remove('drag-active');
