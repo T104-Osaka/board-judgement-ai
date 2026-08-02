@@ -55,10 +55,10 @@
     <p style="margin:0 0 10px 0; font-size:13px; color:#666;">画像をドロップ ──► 右上の選択肢で人間が修正確認 ──► 「データを確定して蓄積」を押すことで統計グラフにプロットされます</p>
     
     <div style="display:flex; gap:10px;">
-        <button class="btn" onclick="document.getElementById('file-input').click()">📷 写真を選択</button>
-        <button class="btn btn-success" id="btn-save" onclick="commitTeacherData()" disabled>💾 データを確定して蓄積</button>
+        <button class="btn" onclick="document.getElementById('file-input').click()">🎥 動画/写真を選択</button>
+        <button class="btn btn-success" id="btn-save" onclick="commitTeacherData()" disabled>💾 データを確定して全フレームから蓄積</button>
         <button class="btn btn-danger" onclick="clearDatabase()">🗑️ データを初期化</button>
-        <input type="file" id="file-input" accept="image/*" style="display: none;">
+        <input type="file" id="file-input" accept="image/*,video/*" style="display: none;">
     </div>
 
     <div class="workspace">
@@ -101,8 +101,24 @@
     let teacherDatabase = JSON.parse(localStorage.getItem('puyo_rgb_teacher_db')) || [];
     let charts = { rg: null, gb: null, rb: null };
 
-    fileInput.addEventListener('change', (e) => { if (e.target.files.length > 0) handleImage(e.target.files[0]); });
+    // 動画処理用のグローバル変数
+    let currentVideoFile = null;
+    let videoElement = null;
 
+    // ファイル選択（画像・動画の両対応）
+    fileInput.addEventListener('change', (e) => { 
+        if (e.target.files.length > 0) {
+            const file = e.target.files[0];
+            if (file.type.startsWith('video/')) {
+                handleVideo(file);
+            } else if (file.type.startsWith('image/')) {
+                currentVideoFile = null;
+                handleImage(file);
+            }
+        } 
+    });
+
+    // 単体画像の読み込み
     function handleImage(file) {
         if (!file || !file.type.startsWith('image/')) return;
         const reader = new FileReader();
@@ -114,15 +130,40 @@
         reader.readAsDataURL(file);
     }
 
-    function analyzeAndSetupUI(img) {
-        const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = img.width; tempCanvas.height = img.height;
-        const tempCtx = tempCanvas.getContext('2d', {willReadFrequently: true});
-        tempCtx.drawImage(img, 0, 0);
+    // 動画ファイルの読み込みと先頭（最初の1フレーム）の抽出
+    function handleVideo(file) {
+        currentVideoFile = file;
+        const videoUrl = URL.createObjectURL(file);
+        videoElement = document.createElement('video');
+        videoElement.src = videoUrl;
+        videoElement.muted = true;
+        videoElement.playsInline = true;
 
-        const imageData = tempCtx.getImageData(0, 0, img.width, img.height);
+        videoElement.onloadeddata = () => {
+            // 最初の0.1秒目にシークして初期フレームを表示
+            videoElement.currentTime = 0.1;
+        };
+
+        videoElement.onseeked = () => {
+            // 最初の1フレーム目を解析してUIを作る
+            analyzeAndSetupUI(videoElement);
+        };
+    }
+
+    function analyzeAndSetupUI(imgOrVideo) {
+        const tempCanvas = document.createElement('canvas');
+        const imgWidth = imgOrVideo.videoWidth || imgOrVideo.width;
+        const imgHeight = imgOrVideo.videoHeight || imgOrVideo.height;
+
+        tempCanvas.width = imgWidth;
+        tempCanvas.height = imgHeight;
+        const tempCtx = tempCanvas.getContext('2d', {willReadFrequently: true});
+        tempCtx.drawImage(imgOrVideo, 0, 0);
+
+        const imageData = tempCtx.getImageData(0, 0, imgWidth, imgHeight);
         const data = imageData.data;
-        const width = img.width; const height = img.height;
+        const width = imgWidth;
+        const height = imgHeight;
         
         // --- 垂直・水平境界検知 ---
         let allRowCounts = [];
@@ -167,7 +208,7 @@
 
         const finalWidth = rightX - leftX;
         canvas.width = finalWidth; canvas.height = finalHeight;
-        ctx.drawImage(img, leftX, topCutY, finalWidth, finalHeight, 0, 0, finalWidth, finalHeight);
+        ctx.drawImage(imgOrVideo, leftX, topCutY, finalWidth, finalHeight, 0, 0, finalWidth, finalHeight);
 
         const COLOR_PALETTE = {
             "1": { r: 210, g: 50,  b: 50 },  "2": { r: 50,  g: 100, b: 210 },
@@ -181,15 +222,12 @@
         temporaryCellBuffer = [];
         gridOverlay.innerHTML = '';
 
-        // 🚀【同期完了】シミュレータ本体の読み取り範囲のロジックと1ピクセル単位で完全統一
         for (let row = 0; row < 7; row++) {
             const rowHeight = yRatios[row] * uH;
             for (let col = 0; col < 8; col++) {
                 let sX, eX, sY, eY;
                 const cellLeft = leftX + (col * uW);
-                const cellRight = leftX + ((col + 1) * uW);
                 const cellTop = topCutY + currentLoopY;
-                const cellBottom = topCutY + currentLoopY + rowHeight;
 
                 if (row === 0) {
                     sX = cellLeft + (uW * 0.33); eX = cellLeft + (uW * 0.48);
@@ -199,18 +237,16 @@
                     sY = cellTop + (rowHeight * 0.25); eY = cellTop + (rowHeight * 0.75);
                 }
 
-                // 1. 【平均値の計算】範囲は本体と全く同じ中央50%を維持
                 let sumR = 0, sumG = 0, sumB = 0, count = 0;
                 for (let py = Math.floor(sY); py < Math.floor(eY); py++) {
                     for (let px = Math.floor(sX); px < Math.floor(eX); px++) {
                         const i = (py * width + px) * 4;
                         const r = data[i], g = data[i+1], b = data[i+2];
-                        if (r > 240 && g > 240 && b > 240) continue; // テカリ排除
+                        if (r > 240 && g > 240 && b > 240) continue;
                         sumR += r; sumG += g; sumB += b; count++;
                     }
                 }
 
-                // 2. 【色数のカウント】平均値エリアの『上半分』のピクセルだけを集計する本体の最新構造
                 let uniqueInCell = new Set();
                 const colorCountStartY = Math.floor(sY);
                 const colorCountEndY   = Math.floor(sY + (eY - sY) * 0.5);
@@ -227,9 +263,8 @@
                 }
 
                 const avg = { r: sumR / count, g: sumG / count, b: sumB / count };
-                let detectedId = "0"; // デフォルトは0(ハート)
+                let detectedId = "0";
 
-                // 本体側のコア色分岐ツリーを完全に再現
                 if (row !== 0 && uniqueInCell.size <= 200) {
                     detectedId = (avg.g >= avg.r * 0.86) ? "4" : "0"; 
                 } else if (row !== 0) {
@@ -244,7 +279,6 @@
                 const cellIndex = row * 8 + col;
                 temporaryCellBuffer.push({ index: cellIndex, row: row, col: col, r: Math.round(avg.r), g: Math.round(avg.g), b: Math.round(avg.b), label: detectedId });
 
-                // マス目の右上にセレクトメニューを物理配置
                 const cellUi = document.createElement('div');
                 cellUi.className = 'cell-ui';
                 
@@ -274,23 +308,97 @@
         document.getElementById('detection-msg').innerText = "⌛ 人間の目による答えの確認・修正待ち...";
     }
 
-    function commitTeacherData() {
+    // データ確定（動画・画像の分岐）
+    async function commitTeacherData() {
+        if (!currentVideoFile || !videoElement) {
+            commitSingleImageData();
+            return;
+        }
+
+        btnSave.disabled = true;
+        document.getElementById('detection-msg').innerText = "⏳ 動画の全フレームからRGBデータを抽出中...";
+
+        const fps = 5; // 秒間コマ数
+        const duration = videoElement.duration;
+        const step = 1 / fps;
+        let addedCount = 0;
+
+        const confirmedLabels = temporaryCellBuffer.map(cell => cell.label);
+
+        for (let t = 0; t < duration; t += step) {
+            await new Promise((resolve) => {
+                videoElement.currentTime = t;
+                videoElement.onseeked = () => {
+                    const tempCanvas = document.createElement('canvas');
+                    tempCanvas.width = videoElement.videoWidth;
+                    tempCanvas.height = videoElement.videoHeight;
+                    const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
+                    tempCtx.drawImage(videoElement, 0, 0);
+
+                    const imageData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+                    const data = imageData.data;
+
+                    temporaryCellBuffer.forEach((cell, idx) => {
+                        const targetLabel = confirmedLabels[idx];
+                        if (cell.row > 0 && targetLabel !== "不明" && targetLabel !== "NEXT(判定対象外)") {
+                            const rgb = extractCellRGB(data, tempCanvas.width, cell.row, cell.col);
+                            teacherDatabase.push({ r: rgb.r, g: rgb.g, b: rgb.b, label: targetLabel });
+                            addedCount++;
+                        }
+                    });
+                    resolve();
+                };
+            });
+        }
+
+        localStorage.setItem('puyo_rgb_teacher_db', JSON.stringify(teacherDatabase));
+        document.getElementById('detection-msg').innerText = `✅ 成功：動画全体から ${addedCount} 個のRGB教師データを蓄積しました！`;
+        
+        renderScatterCharts();
+        updateStatsLog();
+    }
+
+    // 単体画像の蓄積処理
+    function commitSingleImageData() {
         let addedCount = 0;
         temporaryCellBuffer.forEach(cell => {
-            // 💡 工学的なデータクレンジング：
-            // cell.row === 0 (NEXT) を完全に弾き、人間が手動で「不明」のままにしたマスも除外する
             if (cell.row > 0 && cell.label !== "不明" && cell.label !== "NEXT(判定対象外)") {
                 teacherDatabase.push({ r: cell.r, g: cell.g, b: cell.b, label: cell.label });
                 addedCount++;
             }
         });
-
         localStorage.setItem('puyo_rgb_teacher_db', JSON.stringify(teacherDatabase));
         document.getElementById('detection-msg').innerText = `✅ 成功：本番面から ${addedCount} 個のRGB教師データを蓄積しました！`;
         btnSave.disabled = true;
-        
         renderScatterCharts();
         updateStatsLog();
+    }
+
+    // 動画フレームの指定セルからRGB平均を取得する関数
+    function extractCellRGB(data, width, row, col) {
+        const uH = canvas.height / 13;
+        const uW = canvas.width / 8;
+        const yRatios = [1, 2, 2, 2, 2, 2, 2];
+        let currentLoopY = 0;
+        for (let r = 0; r < row; r++) currentLoopY += yRatios[r] * uH;
+        const rowHeight = yRatios[row] * uH;
+
+        const sX = (col * uW) + (uW * 0.25);
+        const eX = (col * uW) + (uW * 0.75);
+        const sY = currentLoopY + (rowHeight * 0.25);
+        const eY = currentLoopY + (rowHeight * 0.75);
+
+        let sumR = 0, sumG = 0, sumB = 0, count = 0;
+        for (let py = Math.floor(sY); py < Math.floor(eY); py++) {
+            for (let px = Math.floor(sX); px < Math.floor(eX); px++) {
+                const i = (py * width + px) * 4;
+                const r = data[i], g = data[i+1], b = data[i+2];
+                if (r > 240 && g > 240 && b > 240) continue;
+                sumR += r; sumG += g; sumB += b; count++;
+            }
+        }
+        if (count === 0) return { r: 0, g: 0, b: 0 };
+        return { r: Math.round(sumR / count), g: Math.round(sumG / count), b: Math.round(sumB / count) };
     }
 
     function clearDatabase() {
@@ -312,7 +420,6 @@
         statsLog.innerText = logText;
     }
 
-    // 🚀【バグ修正版】再レンダリング時にグラフが無限に自己拡大していく現象を完全に抑え込むロジック
     function renderScatterCharts() {
         const configKeys = [
             { id: 'chart-rg', xKey: 'r', yKey: 'g', xLabel: 'R (赤成分)', yLabel: 'G (緑成分)' },
@@ -336,7 +443,6 @@
             });
 
             const chartKey = cfg.id.split('-')[1];
-            // 💡 メモリ空間上のキャンバスインスタンスを完全にデストロイして再生成
             if (charts[chartKey]) { charts[chartKey].destroy(); }
 
             const canvasCtx = document.getElementById(cfg.id).getContext('2d');
@@ -345,7 +451,7 @@
                 data: { datasets: datasets },
                 options: {
                     responsive: true,
-                    maintainAspectRatio: false, // ラッパーの height: 260px に完全に追従させる
+                    maintainAspectRatio: false,
                     layout: { padding: 4 },
                     scales: {
                         x: { min: 0, max: 255, title: { display: true, text: cfg.xLabel, font: { weight: 'bold', size: 11 } } },
@@ -357,14 +463,18 @@
         });
     }
 
-    // ドラッグ＆ドロップ
+    // ドラッグ＆ドロップ対応（画像・動画対応）
     document.addEventListener('dragover', (e) => { e.preventDefault(); document.body.classList.add('drag-active'); });
     document.addEventListener('dragleave', (e) => {
         if (e.relatedTarget === null || !document.body.contains(e.relatedTarget)) document.body.classList.remove('drag-active');
     });
     document.addEventListener('drop', (e) => {
         e.preventDefault(); document.body.classList.remove('drag-active');
-        if (e.dataTransfer.files.length > 0) handleImage(e.dataTransfer.files[0]);
+        if (e.dataTransfer.files.length > 0) {
+            const file = e.dataTransfer.files[0];
+            if (file.type.startsWith('video/')) handleVideo(file);
+            else if (file.type.startsWith('image/')) { currentVideoFile = null; handleImage(file); }
+        }
     });
 
     window.addEventListener('DOMContentLoaded', () => {
