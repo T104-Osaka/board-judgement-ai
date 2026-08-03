@@ -484,23 +484,21 @@
                         .filter(item => item.label === labelId && item.features && item.features[grp.key])
                         .map(item => ({ x: item.features[grp.key][cfg.xKey], y: item.features[grp.key][cfg.yKey] }));
 
-                    // 🚀 各データ点ごとに『G最大5px の R値が 220 以上か』をチェックして個別色を設定
+                    // 🚀 プラス（白: labelId === "1"）かつ G最大5pxの R >= 220 のデータのみオレンジにする
                     const pointBgColors = [];
                     const pointBorderColors = [];
 
                     teacherDatabase
                         .filter(item => item.label === labelId && item.features && item.features[grp.key])
                         .forEach(item => {
-                            // G最大5px (g_max5) の R値を取得
                             const gMax5R = item.features.g_max5 ? item.features.g_max5.r : 0;
                             
-                            if (gMax5R >= 220) {
-                                // 条件合致（R >= 220）: 強調用のオレンジ
-                                pointBgColors.push("#ff9f43");
-                                pointBorderColors.push("#d35400");
+                            // 💡 条件: プラス(白)のラベルかつ G最大5pxのRが220以上
+                            if (labelId === "1" && gMax5R >= 220) {
+                                pointBgColors.push("#ff9f43");     // 強調オレンジ
+                                pointBorderColors.push("#d35400"); // 濃いオレンジ枠
                             } else {
-                                // 通常データ: 元の色設定（黒/白）
-                                pointBgColors.push(CHART_COLORS[labelId]);
+                                pointBgColors.push(CHART_COLORS[labelId]); // 元の色（通常:黒 / プラス:白）
                                 pointBorderColors.push("#333333");
                             }
                         });
@@ -508,10 +506,10 @@
                     return {
                         label: LABEL_MAP[labelId],
                         data: filteredPoints,
-                        backgroundColor: pointBgColors,    // 動的配列を指定
-                        borderColor: pointBorderColors,     // 動的配列を指定
+                        backgroundColor: pointBgColors,
+                        borderColor: pointBorderColors,
                         borderWidth: 1,
-                        pointRadius: 5,                    // 視認性を上げるため少し拡大
+                        pointRadius: 5,
                         pointHoverRadius: 7
                     };
                 });
