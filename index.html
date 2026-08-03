@@ -304,6 +304,42 @@
                     label: detectedId
                 });
 
+                // UIのセレクトボックス描画
+                const cellUi = document.createElement('div');
+                cellUi.className = 'cell-ui';
+                
+                const select = document.createElement('select');
+                select.className = 'color-selector';
+                select.id = `select-cell-${cellIndex}`;
+                
+                for (let val in LABEL_MAP) {
+                    const opt = document.createElement('option');
+                    opt.value = val; opt.innerText = LABEL_MAP[val];
+                    if (val === detectedId) opt.selected = true;
+                    select.appendChild(opt);
+                }
+
+                select.addEventListener('change', (e) => {
+                    temporaryCellBuffer[cellIndex].label = e.target.value;
+                    if (isLocked && lockedLabels) lockedLabels[cellIndex] = e.target.value;
+                });
+
+                cellUi.appendChild(select);
+                gridOverlay.appendChild(cellUi);
+            }
+            currentLoopY += rowHeight;
+        }
+
+        stage.style.display = 'inline-block';
+        btnSave.disabled = false;
+
+        if (isLocked) {
+            document.getElementById('detection-msg').innerText = "🔒 固定モード動作中: 配置を固定して読み込みました。「蓄積」を押すと登録されます。";
+        } else {
+            document.getElementById('detection-msg').innerText = "⌛ 人間の目による答えの確認・修正待ち...";
+        }
+    }
+
     function commitTeacherData() {
         let addedCount = 0;
         temporaryCellBuffer.forEach(cell => {
