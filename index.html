@@ -102,18 +102,40 @@
     let isLocked = false;
     let lockedLabels = null; // 固定された48マスのラベル配列
 
-    // UIに「正解ラベル固定用チェックボックス」を動的追加
-    const lockContainer = document.createElement('div');
-    lockContainer.style.margin = "10px 0";
-    lockContainer.style.fontSize = "14px";
-    lockContainer.style.fontWeight = "bold";
-    lockContainer.innerHTML = `
+    // UIに「正解ラベル固定用」および「特定色の表示切替用」コントロールを動的追加
+    const filterContainer = document.createElement('div');
+    filterContainer.style.margin = "10px 0";
+    filterContainer.style.display = "flex";
+    filterContainer.style.flexWrap = "wrap";
+    filterContainer.style.gap = "10px";
+    filterContainer.style.justifyContent = "center";
+    filterContainer.style.alignItems = "center";
+    filterContainer.style.fontSize = "13px";
+    filterContainer.style.fontWeight = "bold";
+
+    filterContainer.innerHTML = `
         <label style="cursor:pointer; background:#fff; padding:6px 12px; border-radius:6px; border:1px solid #ccc; display:inline-flex; align-items:center; gap:6px;">
             <input type="checkbox" id="chk-lock-label" style="transform:scale(1.2); cursor:pointer;">
             🔒 現在の色選択を固定する（次の写真から自動適用）
         </label>
+        <div style="background:#fff; padding:6px 12px; border-radius:6px; border:1px solid #ccc; display:inline-flex; align-items:center; gap:8px;">
+            <span>🎨 表示色:</span>
+            <label style="cursor:pointer; color:#d63384;"><input type="checkbox" class="chk-color-filter" value="0" checked> ハート</label>
+            <label style="cursor:pointer; color:#dc3545;"><input type="checkbox" class="chk-color-filter" value="1" checked> 赤</label>
+            <label style="cursor:pointer; color:#0d6efd;"><input type="checkbox" class="chk-color-filter" value="2" checked> 青</label>
+            <label style="cursor:pointer; color:#198754;"><input type="checkbox" class="chk-color-filter" value="3" checked> 緑</label>
+            <label style="cursor:pointer; color:#b58900;"><input type="checkbox" class="chk-color-filter" value="4" checked> 黄</label>
+            <label style="cursor:pointer; color:#6f42c1;"><input type="checkbox" class="chk-color-filter" value="5" checked> 紫</label>
+        </div>
     `;
-    document.querySelector('.container').insertBefore(lockContainer, document.querySelector('.workspace'));
+    document.querySelector('.container').insertBefore(filterContainer, document.querySelector('.workspace'));
+
+    // 色表示チェックボックスの変更イベント監視
+    document.querySelectorAll('.chk-color-filter').forEach(chk => {
+        chk.addEventListener('change', () => {
+            renderScatterCharts();
+        });
+    });
 
     const chkLock = document.getElementById('chk-lock-label');
     chkLock.addEventListener('change', (e) => {
@@ -407,6 +429,9 @@
             });
         }
 
+        // チェックされている色のIDリストを取得
+        const activeColorIds = Array.from(document.querySelectorAll('.chk-color-filter:checked')).map(el => el.value);
+
         // 各グループ・各空間散布図を描画/更新
         FEATURE_GROUPS.forEach(grp => {
             const configKeys = [
@@ -416,7 +441,8 @@
             ];
 
             configKeys.forEach(cfg => {
-                const datasets = Object.keys(CHART_COLORS).map(labelId => {
+                // チェックが入っている色のデータセットのみ生成する
+                const datasets = activeColorIds.map(labelId => {
                     const filteredPoints = teacherDatabase
                         .filter(item => item.label === labelId && item.features && item.features[grp.key])
                         .map(item => ({ x: item.features[grp.key][cfg.xKey], y: item.features[grp.key][cfg.yKey] }));
