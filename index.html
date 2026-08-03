@@ -495,7 +495,7 @@
                             const gMax5B = item.features.g_max5 ? item.features.g_max5.b : 0;
                             
                             // 💡 条件: プラス(白)のラベルかつ G最大5pxのRが220以上
-                            if (labelId === "1" && gMax5R >= 220) {
+                            if (labelId === "1" && gMax5R >= 220 && gMax5B >= 170) {
                                 pointBgColors.push("#ff9f43");     // 強調オレンジ
                                 pointBorderColors.push("#d35400"); // 濃いオレンジ枠
                             } else {
