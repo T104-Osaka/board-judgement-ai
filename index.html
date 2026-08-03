@@ -484,14 +484,35 @@
                         .filter(item => item.label === labelId && item.features && item.features[grp.key])
                         .map(item => ({ x: item.features[grp.key][cfg.xKey], y: item.features[grp.key][cfg.yKey] }));
 
+                    // 🚀 各データ点ごとに『G最大5px の R値が 220 以上か』をチェックして個別色を設定
+                    const pointBgColors = [];
+                    const pointBorderColors = [];
+
+                    teacherDatabase
+                        .filter(item => item.label === labelId && item.features && item.features[grp.key])
+                        .forEach(item => {
+                            // G最大5px (g_max5) の R値を取得
+                            const gMax5R = item.features.g_max5 ? item.features.g_max5.r : 0;
+                            
+                            if (gMax5R >= 220) {
+                                // 条件合致（R >= 220）: 強調用のオレンジ
+                                pointBgColors.push("#ff9f43");
+                                pointBorderColors.push("#d35400");
+                            } else {
+                                // 通常データ: 元の色設定（黒/白）
+                                pointBgColors.push(CHART_COLORS[labelId]);
+                                pointBorderColors.push("#333333");
+                            }
+                        });
+
                     return {
                         label: LABEL_MAP[labelId],
                         data: filteredPoints,
-                        backgroundColor: CHART_COLORS[labelId],
-                        borderColor: "#333333", // 白い点が埋もれないように黒い輪郭線を付与
+                        backgroundColor: pointBgColors,    // 動的配列を指定
+                        borderColor: pointBorderColors,     // 動的配列を指定
                         borderWidth: 1,
-                        pointRadius: 4.5,
-                        pointHoverRadius: 6
+                        pointRadius: 5,                    // 視認性を上げるため少し拡大
+                        pointHoverRadius: 7
                     };
                 });
 
