@@ -426,6 +426,16 @@
 
     let chartInstances = {};
 
+    function clearDatabase() {
+        if (confirm("これまでに蓄積したすべてのプラス状態統計データを削除しますか？")) {
+            teacherDatabase = [];
+            localStorage.removeItem('puyo_rgb_teacher_db');
+            renderScatterCharts();
+            updateStatsLog();
+            document.getElementById('detection-msg').innerText = "🗑️ 統計データをきれいに初期化しました。";
+        }
+    }
+
     function renderScatterCharts() {
         const root = document.getElementById('charts-root');
         
