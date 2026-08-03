@@ -294,20 +294,51 @@
                 };
                 
                 const cellIndex = row * 8 + col;
-                let detectedId = "0";
+                let detectedId = "0"; // デフォルト（0:ハート, 1:赤, 2:青, 3:緑, 4:黄, 5:紫）
 
-                // 🔒 固定フラグがONなら、過去に記憶したラベルを最優先で適用する
+                // 🔒 固定フラグがONなら、人間が指定・固定した色を優先
                 if (isLocked && lockedLabels && lockedLabels[cellIndex] !== undefined) {
                     detectedId = lockedLabels[cellIndex];
+                } else if (row === 0) {
+                    // ネクスト(1行目)は判定対象外のためデフォルトのまま
+                    detectedId = "0";
                 } else {
-                    if (row !== 0 && uniqueInCell.size <= 200) {
-                        detectedId = (avg.g >= avg.r * 0.86) ? "4" : "0"; 
-                    } else if (row !== 0) {
-                        let minDest = Infinity;
-                        for (let id in COLOR_PALETTE) {
-                            const t = COLOR_PALETTE[id];
-                            const d = Math.sqrt(Math.pow(avg.r-t.r,2)+Math.pow(avg.g-t.g,2)+Math.pow(avg.b-t.b,2));
-                            if (d < minDest) { minDest = d; detectedId = id; }
+                    // 7パターンの特徴量から条件判定に必要な要素を参照
+                    const avgAll = features.avg_all;
+                    const bMax5  = features.b_max5;
+                    const bMin5  = features.b_min5;
+                    const gMin5  = features.g_min5;
+
+                    // 1. 【ハート判定】
+                    // 全体平均 B>=200 かつ R>=220 かつ B最大5px G<=225 かつ B最小5px R<=227 かつ B最小5px B>=124 かつ G最小5px B<=200 かつ G最小5px R>=173
+                    const isHeart = (avgAll.b >= 200) && 
+                                    (avgAll.r >= 220) && 
+                                    (bMax5.g  <= 225) && 
+                                    (bMin5.r  <= 227) && 
+                                    (bMin5.b  >= 124) && 
+                                    (gMin5.b  <= 200) && 
+                                    (gMin5.r  >= 173);
+
+                    // 2. 式の事前計算
+                    const condRedBase = (avgAll.r * 1.44 - avgAll.b - 138) > 0;
+                    const condYellowB = (bMin5.g * 1.25 - bMin5.b - 125) > 0;
+                    const condGreen   = (avgAll.g * 5 - avgAll.b * 6 + 70) > 0;
+
+                    // 順次分岐ツリー
+                    if (isHeart) {
+                        detectedId = "0"; // ハート
+                    } else if (condRedBase && condYellowB) {
+                        detectedId = "4"; // 黄
+                    } else if (condRedBase) {
+                        detectedId = "1"; // 赤
+                    } else if (condGreen) {
+                        detectedId = "3"; // 緑
+                    } else {
+                        // ハート、黄、赤、緑のどれにも該当しない場合
+                        if (avgAll.g < avgAll.r) {
+                            detectedId = "5"; // 紫
+                        } else {
+                            detectedId = "2"; // 青
                         }
                     }
                 }
