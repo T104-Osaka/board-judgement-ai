@@ -168,6 +168,27 @@
         reader.readAsDataURL(file);
     }
 
+    // 🚀 データベースクリア処理
+    function clearDatabase() {
+        if (confirm("これまでに蓄積したすべての統計データを削除しますか？")) {
+            teacherDatabase = [];
+            localStorage.removeItem('puyo_rgb_teacher_db');
+            renderScatterCharts();
+            updateStatsLog();
+            document.getElementById('detection-msg').innerText = "🗑️ 統計データをきれいに初期化しました。";
+        }
+    }
+
+    // 🚀 ログ表示更新処理
+    function updateStatsLog() {
+        let counts = { "0": 0, "1": 0, "2": 0, "3": 0, "4": 0, "5": 0 };
+        teacherDatabase.forEach(d => { if (counts[d.label] !== undefined) counts[d.label]++; });
+        
+        let logText = `総データ数: ${teacherDatabase.length} 件\n`;
+        logText += ` [ハート]: ${counts["0"]}件 | [赤]: ${counts["1"]}件 | [青]: ${counts["2"]}件 | [緑]: ${counts["3"]}件 | [黄]: ${counts["4"]}件 | [紫]: ${counts["5"]}件`;
+        statsLog.innerText = logText;
+    }
+
     function analyzeAndSetupUI(img) {
         const tempCanvas = document.createElement('canvas');
         tempCanvas.width = img.width; tempCanvas.height = img.height;
